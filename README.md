@@ -70,6 +70,9 @@ Reports land under `output/`:
 ./bin/netkit diagnose              Dev workflow connectivity
 ./bin/netkit inventory             OS / hardware / tools
 ./bin/netkit report                Combined report (default safe mode)
+./bin/netkit history [--all]       List past reports under output/
+./bin/netkit diff [A] [B]          Diff two reports (default: previous vs latest)
+./bin/netkit oui fetch             Refresh IEEE OUI cache
 ```
 
 Every subcommand accepts `--json`, `--md`, or `--text` (default).
@@ -142,7 +145,6 @@ instead of the ~50 built into the script. Auto-refreshes after 30 days.
 ## Roadmap
 
 - [ ] SQLite history of reports (compare deltas over time)
-- [ ] `netkit diff REPORT_A REPORT_B` (delta between two reports)
 - [ ] iperf3 wrapper for throughput measurement
 - [ ] Wi-Fi diagnostic via `wdutil info` (sudo required, opt-in)
 - [ ] mDNS service browser (`dns-sd -B`) for richer hostname enrichment

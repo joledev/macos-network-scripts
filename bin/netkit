@@ -11,6 +11,8 @@
 #   inventory             OS, hardware and installed tools
 #   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
 #   report [--active]     Generate combined md/json/mermaid report under output/
+#   history [--all]       List past reports under output/ (one-line summary each)
+#   diff [A] [B]          Diff two reports (default: previous vs latest)
 #
 # Global flags (forwarded to subcommands when applicable):
 #   --interface <iface>   Force a specific interface (e.g. en7)
@@ -84,6 +86,10 @@ case "$CMD" in
       *) log_err "Usage: netkit oui fetch [--force]"; exit 2 ;;
     esac
     ;;
+  history)
+    "${NETKIT_ROOT}/scripts/reports/history.sh" "$@" ;;
+  diff)
+    "${NETKIT_ROOT}/scripts/reports/diff.sh" "$@" ;;
   report|all)
     "${NETKIT_ROOT}/scripts/reports/generate.sh" "$@" ;;
   *)
