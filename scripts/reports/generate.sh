@@ -18,6 +18,7 @@ ACTIVE=0
 INCLUDE_TRACE=0
 IFACE=""
 STDOUT_FMT=""
+ALLOW_PARTIAL=0
 
 while (( $# )); do
   case "$1" in
@@ -27,6 +28,9 @@ while (( $# )); do
     --json) STDOUT_FMT="json"; shift ;;
     --md)   STDOUT_FMT="md"; shift ;;
     --text) STDOUT_FMT="text"; shift ;;
+    --allow-partial) ALLOW_PARTIAL=1; shift ;;
+    --yes) export NETKIT_YES=1; shift ;;
+    --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     *) die "Unknown flag: $1" ;;
   esac
 done
@@ -38,6 +42,23 @@ MD_OUT="${NETKIT_OUTPUT_DIR}/report-${TS}.md"
 MMD_OUT="${NETKIT_OUTPUT_DIR}/topology-${TS}.mmd"
 
 [[ -z "$IFACE" ]] && IFACE=$(pick_interface || echo "")
+SUBNET=""
+if [[ -n "$IFACE" ]]; then
+  SUBNET=$(iface_subnet_cidr "$IFACE" 2>/dev/null || echo "")
+fi
+
+# If --active was requested, confirm ONCE at the report level (so the user
+# isn't reprompted by each submodule and so we don't write a misleading
+# 0-hosts report when they decline).
+if (( ACTIVE )); then
+  if [[ -n "$SUBNET" ]]; then
+    guard_active "$SUBNET"
+  else
+    log_warn "Could not derive subnet for ${IFACE:-?}; skipping active confirmation."
+  fi
+  # Once confirmed (or NETKIT_YES=1), suppress further prompts in submodules.
+  export NETKIT_YES=1
+fi
 
 log_info "Generating report (interface=${IFACE:-auto}, active=${ACTIVE}, traceroute=${INCLUDE_TRACE})"
 
@@ -155,6 +176,7 @@ report = {
         "active_probe": os.environ["NETKIT_ACTIVE"] == "1",
         "include_traceroute": os.environ["NETKIT_TRACE"] == "1",
         "module_errors": module_errors,
+        "partial": bool(module_errors),
     },
     "inventory": load("inventory"),
     "interfaces": load("interfaces"),
@@ -182,8 +204,13 @@ def pct(v):
     try: return f"{float(v):.1f}%"
     except Exception: return str(v)
 
+failed_modules = {e.get("module") for e in module_errors}
+diagnostics_failed = "diagnostics" in failed_modules
+
 out = []
 out.append(f"# Network report — {data['meta']['generated_at']}\n")
+if module_errors:
+    out.append("> **PARTIAL REPORT** — one or more modules failed. See the\n> _Module failures_ section below. Re-run with `--allow-partial` to\n> preserve exit code 0.\n")
 out.append("## Executive summary\n")
 default_if = ifs.get("default_interface","")
 default_gw = ifs.get("default_gateway","")
@@ -197,7 +224,10 @@ if q.get("targets"):
     if inet:
         out.append(f"- **Internet latency ({inet[0]['target']}):** {inet[0].get('rtt_avg_ms','?')} ms avg, {pct(inet[0].get('loss_pct',0))} loss")
 ghttps = diag.get("github_https",{}) if isinstance(diag, dict) else {}
-out.append(f"- **GitHub HTTPS:** {'OK' if ghttps.get('ok') else 'FAIL'}")
+if diagnostics_failed:
+    out.append("- **GitHub HTTPS:** UNKNOWN (diagnostics module failed)")
+else:
+    out.append(f"- **GitHub HTTPS:** {'OK' if ghttps.get('ok') else 'FAIL'}")
 out.append(f"- **DNS query ({q.get('dns_domain','')}):** {q.get('dns_query_ms','?')} ms\n")
 
 out.append("## System inventory\n")
@@ -264,8 +294,10 @@ for r in q.get("targets", []):
         recs.append(f"Jitter to {r['target']} is {r['rtt_stddev_ms']:.1f} ms — link may be unstable.")
 if q.get("dns_query_ms") and q.get("dns_query_ms", 0) > 100:
     recs.append(f"DNS lookup took {q['dns_query_ms']} ms — consider switching resolver.")
-if not ghttps.get("ok"):
+if not diagnostics_failed and not ghttps.get("ok"):
     recs.append("GitHub HTTPS failed — check VPN, proxy, or DNS for github.com.")
+if diagnostics_failed:
+    recs.append("Diagnostics module failed — connectivity checks were not run. Investigate scripts/diagnostics/dev.sh.")
 
 out.append("## Recommendations\n")
 if recs:
@@ -308,6 +340,10 @@ import json, os
 r = json.load(open(os.environ["NETKIT_JSON_PATH"]))
 m = r.get("meta", {}); ifs = r.get("interfaces", {}); q = r.get("quality", {})
 d = r.get("diagnostics", {}); h = r.get("hosts", {})
+errors = m.get("module_errors", [])
+failed = {e.get("module") for e in errors}
+if m.get("partial"):
+    print("*** PARTIAL REPORT — see Module failures below ***\n")
 print(f"Generated      : {m.get('generated_at')}")
 print(f"Interface      : {ifs.get('default_interface')} -> {ifs.get('default_gateway')}")
 print(f"LAN hosts      : {h.get('count', 0)}")
@@ -318,8 +354,10 @@ if q.get("targets"):
     if inet:
         i = inet[0]
         print(f"Internet RTT   : {i.get('target')} avg={i.get('rtt_avg_ms','?')} ms loss={i.get('loss_pct',0)}%")
-print(f"GitHub HTTPS   : {'OK' if d.get('github_https',{}).get('ok') else 'FAIL'}")
-errors = m.get("module_errors", [])
+if "diagnostics" in failed:
+    print("GitHub HTTPS   : UNKNOWN (diagnostics module failed)")
+else:
+    print(f"GitHub HTTPS   : {'OK' if d.get('github_https',{}).get('ok') else 'FAIL'}")
 if errors:
     print()
     print("Module failures:")
@@ -335,3 +373,14 @@ PY
     ;;
   *) die "Unknown --json/--md/--text combination" ;;
 esac
+
+# Partial-report exit contract: if any module failed, exit non-zero unless
+# the caller opted in via --allow-partial. Artifacts are already on disk.
+if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])) else 2)' "$ERRORS_FILE" 2>/dev/null; then
+  if (( ALLOW_PARTIAL )); then
+    log_warn "Report is partial; --allow-partial set, exit 0."
+    exit 0
+  fi
+  log_err "Report is partial (module_errors not empty). Exit 1. Pass --allow-partial to override."
+  exit 1
+fi

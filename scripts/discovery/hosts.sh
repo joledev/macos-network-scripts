@@ -124,9 +124,11 @@ fi
 
 export NETKIT_ROOT NETKIT_FMT="$FORMAT" NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET"
 export NETKIT_ARP_FILE="$ARP_TMP" NETKIT_ARPSCAN_FILE="$ARPSCAN_TMP"
+NETKIT_LOCAL_IP="$(iface_ipv4 "$IFACE" 2>/dev/null || echo "")"
+export NETKIT_LOCAL_IP
 
 python3 - <<'PY'
-import concurrent.futures, json, os, re, socket, sys
+import concurrent.futures, ipaddress, json, os, re, socket, sys
 sys.path.insert(0, os.path.join(os.environ["NETKIT_ROOT"], "scripts/utils"))
 import oui
 
@@ -144,6 +146,43 @@ try:
 except OSError:
     pass
 
+# Build the set of real-host IPs in the subnet for fast membership tests.
+subnet_cidr = os.environ["NETKIT_SUBNET"]
+local_ip    = os.environ.get("NETKIT_LOCAL_IP", "")
+
+try:
+    net = ipaddress.IPv4Network(subnet_cidr, strict=False)
+    net_addr = str(net.network_address)
+    bcast    = str(net.broadcast_address)
+except ValueError:
+    net = None
+    net_addr = ""
+    bcast = ""
+
+filtered_out = []  # (ip, mac, reason) for diagnostics if needed
+
+def keep(ip_str: str) -> tuple[bool, str]:
+    """Return (keep, reason_if_dropped)."""
+    try:
+        ip_obj = ipaddress.IPv4Address(ip_str)
+    except ValueError:
+        return False, "not_ipv4"
+    if ip_obj.is_multicast:
+        return False, "multicast"
+    if ip_obj.is_unspecified:
+        return False, "unspecified"
+    if ip_obj.is_loopback:
+        return False, "loopback"
+    if net is not None and ip_obj not in net:
+        return False, "out_of_subnet"
+    if ip_str == net_addr:
+        return False, "network_address"
+    if ip_str == bcast:
+        return False, "broadcast"
+    if ip_str == local_ip:
+        return False, "self"
+    return True, ""
+
 hosts = {}
 
 arp_re = re.compile(r"\(([\d.]+)\)\s+at\s+([0-9a-f:]+)", re.I)
@@ -152,6 +191,10 @@ for line in arp_text.splitlines():
     if not m: continue
     ip, mac = m.group(1), m.group(2).lower()
     if mac == "(incomplete)":
+        continue
+    ok, reason = keep(ip)
+    if not ok:
+        filtered_out.append({"ip": ip, "mac": mac, "reason": reason})
         continue
     mac_full = ":".join(p.zfill(2) for p in mac.split(":"))
     hosts.setdefault(ip, {
@@ -168,6 +211,10 @@ for line in arpscan_text.splitlines():
     ip = parts[0].strip()
     mac = parts[1].strip().lower()
     if not re.match(r"^\d+\.\d+\.\d+\.\d+$", ip):
+        continue
+    ok, reason = keep(ip)
+    if not ok:
+        filtered_out.append({"ip": ip, "mac": mac, "reason": reason})
         continue
     vendor = parts[2].strip() if len(parts) > 2 else oui.lookup(mac)
     rec = hosts.setdefault(ip, {
@@ -194,9 +241,11 @@ rows = sorted(hosts.values(),
 
 result = {
     "interface": os.environ["NETKIT_IFACE"],
-    "subnet": os.environ["NETKIT_SUBNET"],
+    "subnet": subnet_cidr,
+    "local_ip": local_ip,
     "count": len(rows),
     "hosts": rows,
+    "filtered_count": len(filtered_out),
 }
 
 fmt = os.environ["NETKIT_FMT"]
