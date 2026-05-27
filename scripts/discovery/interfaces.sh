@@ -10,15 +10,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utils/common.sh"
 
 FORMAT="text"
-case "${1:-}" in
-  --json) FORMAT="json" ;;
-  --md)   FORMAT="md" ;;
-  --text|"") FORMAT="text" ;;
-  -h|--help)
-    awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
-    exit 0 ;;
-  *) die "Unknown flag: $1" ;;
-esac
+while (( $# )); do
+  case "$1" in
+    --json) FORMAT="json"; shift ;;
+    --md)   FORMAT="md"; shift ;;
+    --text) FORMAT="text"; shift ;;
+    --yes) export NETKIT_YES=1; shift ;;
+    --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    -h|--help)
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+      exit 0 ;;
+    *) die "Unknown flag: $1" ;;
+  esac
+done
 
 # Build list of (device, hwport) pairs
 mapfile -t DEVICES < <(networksetup -listallhardwareports 2>/dev/null \

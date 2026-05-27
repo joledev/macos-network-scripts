@@ -25,6 +25,8 @@ while (( $# )); do
     --md) FORMAT="md"; shift ;;
     --text) FORMAT="text"; shift ;;
     --ssh-targets) SSH_TARGETS="$2"; shift 2 ;;
+    --yes) export NETKIT_YES=1; shift ;;
+    --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     -h|--help)
       awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       exit 0 ;;

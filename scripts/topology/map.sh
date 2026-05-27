@@ -36,6 +36,8 @@ while (( $# )); do
     --target) TRACE_TARGET="$2"; shift 2 ;;
     --interface) IFACE="$2"; shift 2 ;;
     --subnet) SUBNET="$2"; shift 2 ;;
+    --yes) export NETKIT_YES=1; shift ;;
+    --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     -h|--help)
       awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       exit 0 ;;
@@ -97,19 +99,19 @@ mtr_usable() {
 }
 
 if (( DO_TRACE )); then
-  # mtr needs root for raw ICMP. The same opt-in contract that gates
-  # arp-scan applies: even if a sudo timestamp is cached from elsewhere,
-  # we must not run mtr without --allow-raw / NETKIT_ALLOW_RAW=1.
+  # mtr needs root for raw ICMP. Require explicit --allow-raw (or
+  # NETKIT_ALLOW_RAW=1) — NOT confirm(), because confirm() honors
+  # NETKIT_YES and that would let a permanent .env `NETKIT_YES=1` silently
+  # satisfy the raw-packet contract. Without --allow-raw we fall back to
+  # plain traceroute (no error, no prompt).
   use_mtr=0
   if has_cmd mtr && mtr_usable; then
     if [[ "${NETKIT_ALLOW_RAW:-0}" == "1" ]]; then
       use_mtr=1
     elif [[ "${NETKIT_STRICT:-1}" == "1" ]]; then
-      if confirm "Use mtr (raw ICMP via sudo) for traceroute? Plain traceroute works without sudo."; then
-        use_mtr=1
-      fi
+      log_dim "mtr requires --allow-raw (or NETKIT_ALLOW_RAW=1); using traceroute."
     else
-      log_warn "NETKIT_STRICT=0: allowing sudo -n mtr without explicit confirmation."
+      log_warn "NETKIT_STRICT=0: allowing sudo -n mtr without explicit opt-in."
       use_mtr=1
     fi
   fi
