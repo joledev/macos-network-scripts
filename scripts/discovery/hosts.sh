@@ -34,6 +34,8 @@ while (( $# )); do
     --interface) IFACE="$2"; shift 2 ;;
     --subnet) SUBNET="$2"; shift 2 ;;
     --force) FORCE=1; shift ;;
+    --yes) export NETKIT_YES=1; shift ;;
+    --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     -h|--help)
       sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -53,6 +55,13 @@ fi
 [[ -z "$SUBNET" ]] && die "Could not derive subnet for $IFACE. Pass --subnet 192.168.x.0/24."
 
 guard_subnet_size "$SUBNET" "$FORCE"
+
+if (( ACTIVE )); then
+  guard_active "$SUBNET"
+fi
+if (( USE_ARPSCAN )); then
+  guard_raw_packet "arp-scan (raw ARP probe via sudo)"
+fi
 
 log_info "Interface: $IFACE   Subnet: $SUBNET   Active probe: $ACTIVE   arp-scan: $USE_ARPSCAN"
 
@@ -97,9 +106,20 @@ if (( USE_ARPSCAN )); then
   fi
 fi
 
-# Best-effort mDNS warmup (fills ARP entries for AppleTV, printers, etc.)
+# Best-effort mDNS warmup (fills ARP entries for AppleTV, printers, etc.).
+# macOS does not ship GNU `timeout`; prefer gtimeout if installed, else
+# spawn dns-sd in background and kill it after 2 s.
 if has_cmd dns-sd; then
-  ( timeout 2 dns-sd -B _services._dns-sd._udp local. >/dev/null 2>&1 ) || true
+  if has_cmd gtimeout; then
+    gtimeout 2 dns-sd -B _services._dns-sd._udp local. >/dev/null 2>&1 || true
+  elif has_cmd timeout; then
+    timeout 2 dns-sd -B _services._dns-sd._udp local. >/dev/null 2>&1 || true
+  else
+    dns-sd -B _services._dns-sd._udp local. >/dev/null 2>&1 &
+    _mdns_pid=$!
+    ( sleep 2; kill "$_mdns_pid" >/dev/null 2>&1 ) >/dev/null 2>&1 &
+    wait "$_mdns_pid" 2>/dev/null || true
+  fi
 fi
 
 export NETKIT_ROOT NETKIT_FMT="$FORMAT" NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET"

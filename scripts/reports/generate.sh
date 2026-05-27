@@ -17,12 +17,16 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 ACTIVE=0
 INCLUDE_TRACE=0
 IFACE=""
+STDOUT_FMT=""
 
 while (( $# )); do
   case "$1" in
     --active) ACTIVE=1; shift ;;
     --include-traceroute) INCLUDE_TRACE=1; shift ;;
     --interface) IFACE="$2"; shift 2 ;;
+    --json) STDOUT_FMT="json"; shift ;;
+    --md)   STDOUT_FMT="md"; shift ;;
+    --text) STDOUT_FMT="text"; shift ;;
     *) die "Unknown flag: $1" ;;
   esac
 done
@@ -63,34 +67,68 @@ fi
 TMP_DIR="$(mktemp -d -t netkit-report.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-log_info "  ... interfaces"
-"${SCRIPT_DIR}/../discovery/interfaces.sh" --json > "$TMP_DIR/interfaces.json" 2>/dev/null || echo '{}' > "$TMP_DIR/interfaces.json"
+ERRORS_FILE="$TMP_DIR/_errors.json"
+echo "[]" > "$ERRORS_FILE"
 
-log_info "  ... dns"
-"${SCRIPT_DIR}/../discovery/dns.sh" --json > "$TMP_DIR/dns.json" 2>/dev/null || echo '{}' > "$TMP_DIR/dns.json"
+# Run a module and capture rc + last stderr line. On failure write a fallback
+# JSON to the destination so the report can still render, but record the
+# failure in module_errors so it's visible in the final report.
+run_module() {
+  local name="$1" out="$2" fallback="$3"; shift 3
+  local err rc=0
+  err="$(mktemp -t netkit-err.XXXXXX)"
+  log_info "  ... ${name}"
+  # Temporarily disable errexit so a failing module doesn't kill the report.
+  set +e
+  "$@" >"$out" 2>"$err"
+  rc=$?
+  set -e
+  if (( rc == 0 )); then
+    rm -f "$err"
+    return 0
+  fi
+  local tail
+  tail="$(tail -n 5 "$err" 2>/dev/null | tr '\n' ' ' | cut -c 1-300)"
+  log_warn "  ${name} failed (rc=${rc}); see report.meta.module_errors"
+  printf '%s' "$fallback" > "$out"
+  NETKIT_ERR_FILE="$ERRORS_FILE" NETKIT_ERR_MOD="$name" \
+    NETKIT_ERR_RC="$rc" NETKIT_ERR_TAIL="$tail" python3 - <<'PY'
+import json, os
+p = os.environ["NETKIT_ERR_FILE"]
+data = json.load(open(p))
+data.append({
+    "module": os.environ["NETKIT_ERR_MOD"],
+    "rc": int(os.environ["NETKIT_ERR_RC"]),
+    "stderr_tail": os.environ["NETKIT_ERR_TAIL"],
+})
+json.dump(data, open(p, "w"))
+PY
+  rm -f "$err"
+  return 0
+}
 
-log_info "  ... hosts"
-"${SCRIPT_DIR}/../discovery/hosts.sh" "${HOSTS_FLAGS[@]}" > "$TMP_DIR/hosts.json" 2>/dev/null || echo '{"hosts":[]}' > "$TMP_DIR/hosts.json"
-
-log_info "  ... quality"
-"${SCRIPT_DIR}/../quality/ping.sh" "${PING_FLAGS[@]}" > "$TMP_DIR/quality.json" 2>/dev/null || echo '{"targets":[]}' > "$TMP_DIR/quality.json"
-
-log_info "  ... diagnostics"
-"${SCRIPT_DIR}/../diagnostics/dev.sh" --json > "$TMP_DIR/diagnostics.json" 2>/dev/null || echo '{}' > "$TMP_DIR/diagnostics.json"
-
-log_info "  ... inventory"
-"${SCRIPT_DIR}/../inventory/system.sh" --json > "$TMP_DIR/inventory.json" 2>/dev/null || echo '{}' > "$TMP_DIR/inventory.json"
-
-log_info "  ... topology"
-"${SCRIPT_DIR}/../topology/map.sh" "${TOPO_FLAGS[@]}" > "$TMP_DIR/topology.json" 2>/dev/null || echo '{}' > "$TMP_DIR/topology.json"
-
-log_info "  ... topology (mermaid)"
-"${SCRIPT_DIR}/../topology/map.sh" "${TOPO_MMD_FLAGS[@]}" > "$MMD_OUT" 2>/dev/null || echo "graph TD" > "$MMD_OUT"
+run_module "interfaces"  "$TMP_DIR/interfaces.json"  '{}' \
+  "${SCRIPT_DIR}/../discovery/interfaces.sh" --json
+run_module "dns"         "$TMP_DIR/dns.json"         '{}' \
+  "${SCRIPT_DIR}/../discovery/dns.sh" --json
+run_module "hosts"       "$TMP_DIR/hosts.json"       '{"hosts":[]}' \
+  "${SCRIPT_DIR}/../discovery/hosts.sh" "${HOSTS_FLAGS[@]}"
+run_module "quality"     "$TMP_DIR/quality.json"     '{"targets":[]}' \
+  "${SCRIPT_DIR}/../quality/ping.sh" "${PING_FLAGS[@]}"
+run_module "diagnostics" "$TMP_DIR/diagnostics.json" '{}' \
+  "${SCRIPT_DIR}/../diagnostics/dev.sh" --json
+run_module "inventory"   "$TMP_DIR/inventory.json"   '{}' \
+  "${SCRIPT_DIR}/../inventory/system.sh" --json
+run_module "topology"    "$TMP_DIR/topology.json"    '{}' \
+  "${SCRIPT_DIR}/../topology/map.sh" "${TOPO_FLAGS[@]}"
+run_module "topology_mermaid" "$MMD_OUT" 'graph TD' \
+  "${SCRIPT_DIR}/../topology/map.sh" "${TOPO_MMD_FLAGS[@]}"
 
 # Combine all JSONs
 export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_IFACE_HINT="$IFACE"
 export NETKIT_ACTIVE="$ACTIVE" NETKIT_TRACE="$INCLUDE_TRACE"
 export NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MD_OUT="$MD_OUT"
+export NETKIT_ERRORS_FILE="$ERRORS_FILE"
 
 python3 - <<'PY'
 import json, os, sys
@@ -103,12 +141,20 @@ def load(name):
     except (OSError, json.JSONDecodeError) as e:
         return {"_load_error": str(e)}
 
+try:
+    module_errors = json.load(open(os.environ["NETKIT_ERRORS_FILE"]))
+except Exception:
+    module_errors = []
+
 report = {
     "meta": {
+        "schema_version": "1.0.0",
+        "tool_version": "0.1.0",
         "generated_at": os.environ["NETKIT_TS"],
         "interface_hint": os.environ["NETKIT_IFACE_HINT"],
         "active_probe": os.environ["NETKIT_ACTIVE"] == "1",
         "include_traceroute": os.environ["NETKIT_TRACE"] == "1",
+        "module_errors": module_errors,
     },
     "inventory": load("inventory"),
     "interfaces": load("interfaces"),
@@ -229,6 +275,15 @@ else:
     out.append("- No issues detected. Re-run with `--active` to deepen the LAN sweep.")
 out.append("")
 
+if module_errors:
+    out.append("## Module failures\n")
+    out.append("| module | rc | stderr (tail) |")
+    out.append("| --- | ---: | --- |")
+    for e in module_errors:
+        tail = (e.get("stderr_tail") or "").replace("|", r"\|")
+        out.append(f"| {e.get('module')} | {e.get('rc')} | {tail} |")
+    out.append("")
+
 out.append("## Limitations\n")
 out.append("- Active scans are bounded to your local subnet by default and capped at NETKIT_MAX_HOSTS.")
 out.append("- Tools that require root (arp-scan, raw nmap modes, tcpdump) are skipped unless explicitly enabled.")
@@ -243,7 +298,40 @@ log_ok "Report → ${MD_OUT/#$NETKIT_ROOT\//}"
 log_ok "JSON   → ${JSON_OUT/#$NETKIT_ROOT\//}"
 log_ok "Mermaid→ ${MMD_OUT/#$NETKIT_ROOT\//}"
 
-echo
-echo "$MD_OUT"
-echo "$JSON_OUT"
-echo "$MMD_OUT"
+case "$STDOUT_FMT" in
+  json) cat "$JSON_OUT" ;;
+  md)   cat "$MD_OUT" ;;
+  text)
+    # Compact text summary distilled from the JSON.
+    NETKIT_JSON_PATH="$JSON_OUT" python3 - <<'PY'
+import json, os
+r = json.load(open(os.environ["NETKIT_JSON_PATH"]))
+m = r.get("meta", {}); ifs = r.get("interfaces", {}); q = r.get("quality", {})
+d = r.get("diagnostics", {}); h = r.get("hosts", {})
+print(f"Generated      : {m.get('generated_at')}")
+print(f"Interface      : {ifs.get('default_interface')} -> {ifs.get('default_gateway')}")
+print(f"LAN hosts      : {h.get('count', 0)}")
+if q.get("targets"):
+    g = q["targets"][0]
+    print(f"Gateway RTT    : avg={g.get('rtt_avg_ms','?')} ms  loss={g.get('loss_pct',0)}%")
+    inet = [t for t in q['targets'] if t.get('target') != ifs.get('default_gateway')][:1]
+    if inet:
+        i = inet[0]
+        print(f"Internet RTT   : {i.get('target')} avg={i.get('rtt_avg_ms','?')} ms loss={i.get('loss_pct',0)}%")
+print(f"GitHub HTTPS   : {'OK' if d.get('github_https',{}).get('ok') else 'FAIL'}")
+errors = m.get("module_errors", [])
+if errors:
+    print()
+    print("Module failures:")
+    for e in errors:
+        print(f"  {e.get('module')}: rc={e.get('rc')}  {e.get('stderr_tail','')}")
+PY
+    ;;
+  "")
+    echo
+    echo "$MD_OUT"
+    echo "$JSON_OUT"
+    echo "$MMD_OUT"
+    ;;
+  *) die "Unknown --json/--md/--text combination" ;;
+esac

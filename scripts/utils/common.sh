@@ -27,7 +27,10 @@ fi
 : "${NETKIT_PING_TARGETS:=1.1.1.1,8.8.8.8}"
 : "${NETKIT_DNS_DOMAIN:=github.com}"
 : "${NETKIT_STRICT:=1}"
-export NETKIT_OUTPUT_DIR NETKIT_MAX_HOSTS NETKIT_PING_TARGETS NETKIT_DNS_DOMAIN NETKIT_STRICT
+: "${NETKIT_YES:=0}"
+: "${NETKIT_ALLOW_RAW:=0}"
+export NETKIT_OUTPUT_DIR NETKIT_MAX_HOSTS NETKIT_PING_TARGETS NETKIT_DNS_DOMAIN
+export NETKIT_STRICT NETKIT_YES NETKIT_ALLOW_RAW
 
 # ---- Color & logging ----
 if [[ -t 2 ]] && [[ "${NO_COLOR:-}" == "" ]]; then
@@ -214,6 +217,37 @@ guard_subnet_size() {
 guard_no_sudo() {
   if [[ "$NETKIT_STRICT" == "1" ]] && [[ "$(id -u)" == "0" ]]; then
     die "Refusing to run as root in strict mode. Set NETKIT_STRICT=0 to override (not recommended)."
+  fi
+}
+
+# Refuse raw-packet operations (arp-scan, future tcpdump opt-ins) unless
+# the caller has explicitly opted in. Honors NETKIT_ALLOW_RAW=1, the
+# --allow-raw flag (forwarded as NETKIT_ALLOW_RAW), or interactive
+# confirmation. In strict mode, declining confirmation aborts.
+guard_raw_packet() {
+  local label="${1:-raw-packet operation}"
+  if [[ "$NETKIT_ALLOW_RAW" == "1" ]]; then
+    return 0
+  fi
+  if [[ "$NETKIT_STRICT" == "1" ]]; then
+    if ! confirm "About to perform a ${label} (requires sudo / raw frames). Proceed?"; then
+      die "${label} declined. Re-run with --allow-raw or NETKIT_ALLOW_RAW=1 to skip this prompt."
+    fi
+  else
+    # Strict off: warn and continue without prompting.
+    log_warn "Allowing ${label} because NETKIT_STRICT=0."
+  fi
+}
+
+# Confirm an active sweep (sends one packet per host in the subnet).
+guard_active() {
+  local subnet="${1:-?}"
+  local hosts="?"
+  if [[ "$subnet" != "?" ]]; then
+    hosts=$(cidr_host_count "$subnet" 2>/dev/null || echo "?")
+  fi
+  if ! confirm "Active sweep will ping ${hosts} hosts in ${subnet}. Continue?"; then
+    die "Active sweep declined."
   fi
 }
 

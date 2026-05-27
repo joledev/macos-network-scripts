@@ -17,7 +17,10 @@
 #   --json | --md | --text | --mermaid    Output format (default: text)
 #   --active              Send light probes (ping sweep) to populate ARP
 #   --force               Bypass safety guards (e.g. large subnet)
-#   --yes                 Auto-confirm prompts
+#   --yes                 Auto-confirm prompts (also: NETKIT_YES=1)
+#   --allow-raw           Allow raw-packet operations like arp-scan
+#                         (also: NETKIT_ALLOW_RAW=1)
+#   --version, -V         Print version and exit
 #   --help, -h            Show this help
 #
 # Examples:
@@ -38,8 +41,22 @@ usage() {
   sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
+# Pre-parse global flags that may appear before the subcommand.
+# Anything we don't recognize is passed through to the subcommand intact.
+PASS=()
+while (( $# )); do
+  case "$1" in
+    --yes) export NETKIT_YES=1; shift ;;
+    --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --version|-V) echo "netkit 0.1.0"; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
+    *) PASS+=("$1"); shift ;;
+  esac
+done
+set -- "${PASS[@]}"
+
 CMD="${1:-}"
-[[ -z "$CMD" || "$CMD" == "-h" || "$CMD" == "--help" ]] && { usage; exit 0; }
+[[ -z "$CMD" ]] && { usage; exit 0; }
 shift || true
 
 case "$CMD" in
