@@ -1,0 +1,18 @@
+# Homebrew packages recommended for the toolkit.
+# Install with: brew install $(grep -v '^#' requirements/brew.txt | xargs)
+# All packages are OPTIONAL. The toolkit degrades gracefully when missing.
+
+# Discovery and topology
+nmap          # host/port discovery (safe defaults only)
+arp-scan      # fast L2 host discovery on local segment
+
+# Quality / throughput
+iperf3        # local throughput measurement (needs server peer)
+mtr           # combined traceroute + ping
+
+# Parsing helpers
+jq            # JSON query / pretty-print
+yq            # YAML query (used by some report templates)
+
+# Diagrams (optional, for richer topology output)
+graphviz      # DOT renderer; mermaid is preferred but DOT is a fallback

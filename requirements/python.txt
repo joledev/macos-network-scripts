@@ -1,0 +1,6 @@
+# The toolkit is designed to run on Python 3 stdlib only.
+# Nothing in this file is required for `bin/netkit` to function.
+# Listed here for optional richer reports / interactive analysis.
+
+# Optional. Uncomment if you want CSV/Excel exports beyond stdlib csv module.
+# pandas>=2.0
