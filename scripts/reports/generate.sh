@@ -20,6 +20,7 @@ IFACE=""
 STDOUT_FMT=""
 ALLOW_PARTIAL=0
 USE_ARPSCAN=0
+REDACT="none"
 
 while (( $# )); do
   case "$1" in
@@ -31,6 +32,13 @@ while (( $# )); do
     --md)   STDOUT_FMT="md"; shift ;;
     --text) STDOUT_FMT="text"; shift ;;
     --allow-partial) ALLOW_PARTIAL=1; shift ;;
+    --redact)
+      [[ -n "${2:-}" ]] || die_usage "--redact requires a level: none|redact|shareable"
+      case "$2" in
+        none|redact|shareable) REDACT="$2" ;;
+        *) die_usage "--redact must be none|redact|shareable (got: $2)" ;;
+      esac
+      shift 2 ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     --dry-run) export NETKIT_DRY_RUN=1; shift ;;
@@ -184,6 +192,7 @@ export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_IFACE_HINT="$IFACE"
 export NETKIT_ACTIVE="$ACTIVE" NETKIT_TRACE="$INCLUDE_TRACE"
 export NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MD_OUT="$MD_OUT"
 export NETKIT_ERRORS_FILE="$ERRORS_FILE"
+export NETKIT_REDACT="$REDACT" NETKIT_ROOT
 
 python3 - <<'PY'
 import json, os, sys
@@ -200,6 +209,12 @@ try:
     module_errors = json.load(open(os.environ["NETKIT_ERRORS_FILE"]))
 except Exception:
     module_errors = []
+
+sys.path.insert(0, os.path.join(os.environ.get("NETKIT_ROOT", ""), "scripts/utils"))
+try:
+    import redact as _redact
+except ImportError:
+    _redact = None  # safe: only used when level != "none"
 
 try:
     tool_version = open(os.path.join(os.environ.get("NETKIT_ROOT", ""), "VERSION")).read().strip()
@@ -225,6 +240,12 @@ report = {
     "diagnostics": load("diagnostics"),
     "topology": load("topology"),
 }
+
+# Apply redaction BEFORE writing JSON so the MD render below sees the
+# redacted dict and stays consistent.
+_redact_level = os.environ.get("NETKIT_REDACT", "none")
+if _redact_level != "none" and _redact is not None:
+    report = _redact.redact_report(report, _redact_level)
 
 with open(os.environ["NETKIT_JSON_OUT"], "w") as f:
     json.dump(report, f, indent=2, default=str)

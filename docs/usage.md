@@ -199,6 +199,44 @@ Runs every module above and writes three files under `output/`.
 ./bin/netkit report --active --include-traceroute --interface en7
 ```
 
+### `report --redact <level>`
+
+Three privacy levels for sharing reports outside your own workflow.
+`none` is the default — full data, what you've been seeing all along.
+
+```fish
+./bin/netkit report --redact none         # default: no redaction
+./bin/netkit report --redact redact       # tokenize PII (stable within report)
+./bin/netkit report --redact shareable    # max redaction for public sharing
+```
+
+| What gets redacted | `none` | `redact` | `shareable` |
+| --- | --- | --- | --- |
+| Hostname / `known_name` | preserved | hashed `host-XXXX` (suffix `.local`/`.lan` kept) | `REDACTED` |
+| `user_shell` | preserved | preserved | `REDACTED` |
+| OS `build_version` | preserved | preserved | `REDACTED` |
+| MAC addresses | preserved | OUI kept (vendor), device portion tokenized | OUI kept, device tokenized |
+| Private IPv4 | preserved | preserved | `/24` kept, host octet tokenized |
+| Tailscale IPs / `.ts.net` search domains | preserved | tokenized (`ts-XXXX`, `tailnet-XXXX.ts.net`) | `REDACTED` |
+| `role` from `known-hosts.toml` | preserved | preserved | `REDACTED` |
+| Listening ports `pid` / `command` / `addr` | preserved | preserved | `REDACTED` |
+| Public IPs (`1.1.1.1`, etc.) | preserved | preserved | preserved (already routable) |
+| TLS issuer / cert info | preserved | preserved | preserved (public chain) |
+
+**Token stability:** by default, tokens are stable within one report (same
+input → same output) but change between reports because the salt is the
+report's timestamp. To make tokens stable across reports (e.g. for
+`netkit diff` of redacted reports of the same network), set:
+
+```fish
+set -x NETKIT_REDACTION_SALT "stable-salt-for-client-X"
+./bin/netkit report --redact redact
+```
+
+`meta.redacted=true` and `meta.redact_level=<level>` are written into the
+JSON so downstream tools can detect a redacted report and refuse to
+re-publish a "full" copy on top of it.
+
 ### `history`
 
 Lists past reports stored in `output/` with a one-line summary each. Default

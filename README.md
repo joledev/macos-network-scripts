@@ -80,6 +80,7 @@ Reports land under `output/`:
 ./bin/netkit report                Combined report (default safe mode)
 ./bin/netkit history [--all]       List past reports under output/
 ./bin/netkit diff [A] [B]          Diff two reports (default: previous vs latest)
+./bin/netkit report --redact LEVEL Privacy levels: none|redact|shareable
 ./bin/netkit oui fetch             Refresh IEEE OUI cache
 ```
 
@@ -157,7 +158,6 @@ instead of the ~50 built into the script. Auto-refreshes after 30 days.
 - [ ] Wi-Fi diagnostic via `wdutil info` (sudo required, opt-in)
 - [ ] Optional Obsidian export (writes to a vault path)
 - [ ] Linux support for the same `bin/netkit` surface
-- [ ] Redaction modes (`--redact`, `--shareable`) for sharing reports publicly
 
 ## Contributing
 

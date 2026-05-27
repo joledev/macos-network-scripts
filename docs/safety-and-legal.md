@@ -48,8 +48,24 @@ own, the answer is usually trivially yes. Be explicit anyway — keep an
 authorization note in `output/.authorization.md` if you scan customer
 networks.
 
+## Sharing reports — privacy
+
+The default report is **full data**: hostnames, MACs, Tailscale tailnet
+identifier, listening ports with PIDs, search domains, OS build numbers.
+Most of those are PII or environment-fingerprints. Before sharing a report
+with anyone outside your own workflow, redact it:
+
+```fish
+./bin/netkit report --redact shareable      # for public issue trackers
+./bin/netkit report --redact redact         # for partners under NDA
+```
+
+See [`docs/usage.md#report---redact-level`](usage.md) for what each level
+preserves vs drops. `meta.redacted=true` is written into the JSON so the
+recipient can tell at a glance.
+
 ## Reporting issues
 
 Found a bug, false positive, or accidental aggressive default? Open an issue
-on the GitHub repo. Do **not** publish output from a real customer or
-production network — sanitize IPs/MACs before sharing.
+on the GitHub repo. Always use `--redact shareable` on any report you paste
+into a public issue.
