@@ -63,6 +63,74 @@ source (`arp` or `arp-scan`).
 Shows both the active resolver chain (`scutil --dns`) and the saved per-service
 DNS settings (`networksetup -getdnsservers`).
 
+### `speedtest` (alias `isp`)
+
+ISP throughput + ping. Picks `speedtest` (Ookla, recommended) first,
+then `cloudflare-speed-cli` (already on this Mac), then a coarse `curl`
+fallback.
+
+```fish
+./bin/netkit speedtest                 # auto-pick tool
+./bin/netkit speedtest --json
+```
+
+### `throughput` (alias `iperf`)
+
+LAN throughput via iperf3. Use against a peer on the same network to
+verify cabling / NIC negotiation / switch capacity.
+
+```fish
+# On a peer machine (Linux / NAS / another Mac):
+./bin/netkit throughput --listen --port 5201
+
+# On this Mac:
+./bin/netkit throughput --server 192.168.1.115
+./bin/netkit throughput --server <host> --duration 30 --udp
+./bin/netkit throughput --server <host> --reverse        # download-direction
+```
+
+### `wifi` (alias `wireless`)
+
+Current SSID, RSSI, channel, security, supported PHY modes, transmit
+rate, plus a scan of nearby APs (without sudo via
+`system_profiler SPAirPortDataType`). Pass `--allow-raw` with a primed
+sudo timestamp to also pull richer info from `wdutil info`.
+
+```fish
+./bin/netkit wifi
+./bin/netkit wifi --json
+sudo -v && ./bin/netkit wifi --allow-raw
+```
+
+### `cameras` (alias `onvif`)
+
+Discovers IP cameras via three complementary techniques: WS-Discovery
+UDP multicast (ONVIF), RTSP DESCRIBE banner grab on port 554, and HTTP
+fingerprint on ports 80 / 8000 / 8080 / 8443. Picks vendor hints from
+common server strings (Hikvision, Dahua, Reolink, Axis, Amcrest,
+Foscam, TP-Link Tapo, Ubiquiti UniFi, etc.).
+
+```fish
+./bin/netkit cameras                            # probe arp-cache hosts
+./bin/netkit cameras --hosts 192.168.1.50,.51   # probe specific candidates
+./bin/netkit cameras --duration 5 --json
+```
+
+### `starlink` (alias `dishy`)
+
+Queries a Starlink dish on its gRPC API. Defaults to
+`192.168.100.1:9200` (the dish's well-known local address). Reports
+device state, uptime, throughput, pop-ping latency, obstruction
+fraction, hardware/software versions and active alerts.
+
+Requires `brew install grpcurl`.
+
+```fish
+./bin/netkit starlink
+./bin/netkit starlink --json
+./bin/netkit starlink --host 192.168.100.1 --port 9200
+```
+
 ### `mdns` (alias `bonjour`)
 
 Browses common Bonjour / mDNS service types on the LAN for a short window

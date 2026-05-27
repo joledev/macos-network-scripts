@@ -9,7 +9,12 @@
 #   mdns [--duration N]   Browse Bonjour / mDNS services on the LAN
 #   topology [--active]   Map local topology; supports --mermaid output
 #   quality               Latency / jitter / packet loss / DNS timing
+#   speedtest             ISP throughput via Ookla / cloudflare-speed-cli
+#   throughput            LAN throughput via iperf3 (--server <host>)
 #   diagnose              Dev-workflow connectivity (GitHub, DNS, Docker, VPN)
+#   wifi                  Wi-Fi RSSI, channel, security + nearby APs scan
+#   cameras               IP camera discovery (ONVIF + RTSP + HTTP fingerprint)
+#   starlink              Starlink dish status via gRPC API
 #   inventory             OS, hardware and installed tools
 #   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
 #   report [--active]     Generate combined md/json/mermaid report under output/
@@ -84,8 +89,18 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/topology/map.sh" "$@" ;;
   quality|ping)
     "${NETKIT_ROOT}/scripts/quality/ping.sh" "$@" ;;
+  speedtest|isp)
+    "${NETKIT_ROOT}/scripts/quality/speedtest.sh" "$@" ;;
+  throughput|iperf)
+    "${NETKIT_ROOT}/scripts/quality/throughput.sh" "$@" ;;
   diagnose|diag|dev)
     "${NETKIT_ROOT}/scripts/diagnostics/dev.sh" "$@" ;;
+  wifi|wireless)
+    "${NETKIT_ROOT}/scripts/diagnostics/wifi.sh" "$@" ;;
+  starlink|dishy)
+    "${NETKIT_ROOT}/scripts/diagnostics/starlink.sh" "$@" ;;
+  cameras|onvif)
+    "${NETKIT_ROOT}/scripts/discovery/cameras.sh" "$@" ;;
   inventory|inv)
     "${NETKIT_ROOT}/scripts/inventory/system.sh" "$@" ;;
   oui)

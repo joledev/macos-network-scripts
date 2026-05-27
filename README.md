@@ -70,7 +70,12 @@ Reports land under `output/`:
 ./bin/netkit mdns [--duration N]   Browse Bonjour / mDNS services
 ./bin/netkit topology [--mermaid]  Topology map
 ./bin/netkit quality [--count N]   Latency, jitter, loss, DNS timing
+./bin/netkit speedtest             ISP throughput (Ookla or cloudflare-speed-cli)
+./bin/netkit throughput --server H LAN throughput via iperf3
 ./bin/netkit diagnose              Dev workflow connectivity
+./bin/netkit wifi [--scan]         RSSI, channel, security + nearby APs
+./bin/netkit cameras               IP camera discovery (ONVIF + RTSP)
+./bin/netkit starlink              Starlink dish status (needs grpcurl)
 ./bin/netkit inventory             OS / hardware / tools
 ./bin/netkit report                Combined report (default safe mode)
 ./bin/netkit history [--all]       List past reports under output/

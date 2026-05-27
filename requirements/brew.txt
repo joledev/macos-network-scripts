@@ -16,3 +16,8 @@ yq            # YAML query (used by some report templates)
 
 # Diagrams (optional, for richer topology output)
 graphviz      # DOT renderer; mermaid is preferred but DOT is a fallback
+
+# Tier-A service tools (network-services workflows)
+speedtest     # Ookla CLI for ISP throughput tests (netkit speedtest)
+grpcurl       # gRPC client for Starlink dish telemetry (netkit starlink)
+# - shellcheck + ruff are dev-only and installed separately, not via brew.
