@@ -1,0 +1,81 @@
+# Allowed commands for agents (Claude Code / MCP shell servers) operating
+# against this repo. Copy to allowed-commands.txt to use locally.
+# Match by prefix. One pattern per line. Comments start with #.
+
+# ---- netkit itself ----
+./bin/netkit
+./bin/netkit-doctor
+
+# ---- make targets ----
+make help
+make doctor
+make discover
+make topology
+make quality
+make diagnose
+make inventory
+make report
+make clean
+
+# ---- Read-only macOS system inspection ----
+ifconfig
+ifconfig en0
+ifconfig en1
+ifconfig en2
+ifconfig en3
+ifconfig en4
+ifconfig en7
+ifconfig bridge0
+ifconfig utun0
+ifconfig utun1
+ifconfig utun2
+ifconfig utun3
+arp -an
+arp -a
+route -n get default
+route -n get
+netstat -rn
+netstat -nat
+netstat -nau
+scutil --dns
+scutil --proxy
+networksetup -listallhardwareports
+networksetup -listnetworkserviceorder
+networksetup -getairportpower
+networksetup -getdnsservers
+networksetup -getMedia
+sysctl -n hw.model
+sysctl -n hw.memsize
+sysctl -n hw.ncpu
+sysctl -n machdep.cpu.brand_string
+sw_vers
+hostname
+lsof -nP -iTCP -sTCP:LISTEN
+lsof -nP -iUDP
+
+# ---- Bounded outbound probes ----
+ping -c
+dig
+dig +short
+dig +stats
+nslookup
+curl -sS https://api.github.com/
+curl -sS -o /dev/null
+traceroute -n -w 1 -q 1
+
+# ---- Homebrew read ops ----
+brew --version
+brew list
+brew list --formula
+brew list --versions
+
+# ---- Git read ops (for repo introspection only) ----
+git status
+git diff
+git log
+git branch
+git remote -v
+
+# ---- jq / yq (pure stdin transforms) ----
+jq
+yq

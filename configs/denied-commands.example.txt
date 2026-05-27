@@ -1,0 +1,76 @@
+# Denied commands. Copy to denied-commands.txt to use locally.
+# Deny is checked before allow. Match by prefix.
+
+# ---- Privilege escalation ----
+sudo
+sudo -E
+sudo -i
+su
+
+# ---- Packet capture ----
+tcpdump
+tshark
+wireshark
+dumpcap
+
+# ---- Aggressive nmap modes ----
+nmap -A
+nmap -O
+nmap -T5
+nmap --script
+nmap --osscan-guess
+nmap --osscan-limit
+nmap --min-rate
+nmap -sS
+nmap -sX
+nmap -sN
+nmap -sF
+nmap -p-
+
+# ---- Network state mutation ----
+networksetup -set
+networksetup -create
+networksetup -delete
+networksetup -add
+networksetup -remove
+networksetup -order
+route add
+route delete
+route flush
+route change
+pfctl
+ipfw
+ifconfig en0 up
+ifconfig en0 down
+ifconfig en7 up
+ifconfig en7 down
+ifconfig en0 delete
+ifconfig en7 delete
+
+# ---- Secret / credential exfiltration ----
+cat ~/.ssh
+cat ~/.aws
+cat ~/.netrc
+cat ~/.config/gcloud
+cat ~/Library/Keychains
+cat ~/Library/Application
+security find-internet-password
+security find-generic-password
+security dump-keychain
+
+# ---- Aggressive deletion ----
+rm -rf /
+rm -rf ~
+rm -rf .git
+rm -rf node_modules
+
+# ---- Shell escape patterns to be suspicious of ----
+bash -c
+zsh -c
+sh -c
+eval
+xargs sh
+xargs bash
+
+# ---- Outbound to anything not on the configured target list ----
+# (Enforce in your harness — pattern-matching curls is brittle.)
