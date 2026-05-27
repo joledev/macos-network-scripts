@@ -29,6 +29,7 @@ while (( $# )); do
     --targets) TARGETS="$2"; shift 2 ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --dry-run) export NETKIT_DRY_RUN=1; shift ;;
     -h|--help)
       awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       exit 0 ;;
@@ -69,6 +70,21 @@ for t in "${USR[@]}"; do
   t="${t// /}"
   [[ -n "$t" ]] && ALL+=("$t")
 done
+
+if dry_run; then
+  log_dry "quality would:"
+  log_dry "  interface : $IFACE"
+  log_dry "  count     : $COUNT pings per target"
+  for tgt in "${ALL[@]}"; do
+    [[ -z "$tgt" ]] && continue
+    log_dry "  command   : ping -b $IFACE -c $COUNT -i 0.2 -q $tgt"
+  done
+  if has_cmd dig; then
+    log_dry "  dns time  : dig $NETKIT_DNS_DOMAIN  (single query)"
+  fi
+  log_dry "no packets sent."
+  exit 0
+fi
 
 log_info "Pinging via $IFACE: ${ALL[*]} (count=$COUNT)"
 

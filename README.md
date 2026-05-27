@@ -65,6 +65,7 @@ Reports land under `output/`:
 ./bin/netkit interfaces            List interfaces (text/md/json)
 ./bin/netkit discover [--active]   List LAN hosts
 ./bin/netkit dns                   DNS resolver and per-service config
+./bin/netkit mdns [--duration N]   Browse Bonjour / mDNS services
 ./bin/netkit topology [--mermaid]  Topology map
 ./bin/netkit quality [--count N]   Latency, jitter, loss, DNS timing
 ./bin/netkit diagnose              Dev workflow connectivity
@@ -147,7 +148,6 @@ instead of the ~50 built into the script. Auto-refreshes after 30 days.
 - [ ] SQLite history of reports (compare deltas over time)
 - [ ] iperf3 wrapper for throughput measurement
 - [ ] Wi-Fi diagnostic via `wdutil info` (sudo required, opt-in)
-- [ ] mDNS service browser (`dns-sd -B`) for richer hostname enrichment
 - [ ] Optional Obsidian export (writes to a vault path)
 - [ ] Linux support for the same `bin/netkit` surface
 - [ ] Redaction modes (`--redact`, `--shareable`) for sharing reports publicly

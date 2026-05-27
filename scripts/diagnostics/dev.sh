@@ -27,12 +27,32 @@ while (( $# )); do
     --ssh-targets) SSH_TARGETS="$2"; shift 2 ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --dry-run) export NETKIT_DRY_RUN=1; shift ;;
     -h|--help)
       awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       exit 0 ;;
     *) die "Unknown flag: $1" ;;
   esac
 done
+
+if dry_run; then
+  log_dry "diagnose would:"
+  log_dry "  curl       : https://api.github.com/ (HTTP code + total time)"
+  log_dry "  tls        : connect github.com:443, capture cert chain"
+  log_dry "  dns        : resolve github.com, $NETKIT_DNS_DOMAIN, cloudflare.com"
+  IFS=',' read -r -a _SSHs <<< "$SSH_TARGETS"
+  for _t in "${_SSHs[@]}"; do
+    [[ -z "$_t" ]] && continue
+    log_dry "  ssh banner : ${_t} (TCP connect, read 256 bytes)"
+  done
+  log_dry "  ipv6       : ping6 -c 3 2606:4700:4700::1111 (only if global v6 present)"
+  log_dry "  docker     : docker version --format json (read-only)"
+  log_dry "  tailscale  : tailscale status --json (read-only)"
+  log_dry "  utuns      : lsof -i @ADDR per tunnel (read-only)"
+  log_dry "  ports      : lsof -nP -iTCP -sTCP:LISTEN (read-only)"
+  log_dry "no traffic sent."
+  exit 0
+fi
 
 export NETKIT_FMT="$FORMAT" NETKIT_SSH_TARGETS_ARG="$SSH_TARGETS"
 export NETKIT_DNS_DOMAIN

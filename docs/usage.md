@@ -15,6 +15,9 @@ cd /Users/joledev/Dev/macos-network-scripts
 - `--mermaid` — Mermaid `graph TD` (topology only).
 - `--active` — send light probes (ping sweep) to populate ARP.
 - `--force` — bypass the `NETKIT_MAX_HOSTS` safety cap.
+- `--yes` — auto-confirm `--active` prompts.
+- `--allow-raw` — allow raw-packet operations (arp-scan, sudo mtr).
+- `--dry-run` — print the probes that would run, exit without executing.
 
 ## Subcommands
 
@@ -59,6 +62,22 @@ source (`arp` or `arp-scan`).
 
 Shows both the active resolver chain (`scutil --dns`) and the saved per-service
 DNS settings (`networksetup -getdnsservers`).
+
+### `mdns` (alias `bonjour`)
+
+Browses common Bonjour / mDNS service types on the LAN for a short window
+(default 3 s) and tries to resolve each advertised instance to an IP. Useful
+for finding AppleTVs, Chromecasts, printers, smart-home bridges, and other
+Apple/IoT devices that don't show up in arp-scan but advertise services.
+
+```fish
+./bin/netkit mdns
+./bin/netkit mdns --duration 5 --json
+```
+
+Limitations: many IoT devices (smart bulbs, plugs, ESP-class boards) do not
+advertise via mDNS at all. arp-scan or `discover --active` remains the
+canonical inventory tool — mDNS just enriches it.
 
 ### `topology` (alias `topo`, `map`)
 

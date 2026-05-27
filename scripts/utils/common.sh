@@ -29,8 +29,9 @@ fi
 : "${NETKIT_STRICT:=1}"
 : "${NETKIT_YES:=0}"
 : "${NETKIT_ALLOW_RAW:=0}"
+: "${NETKIT_DRY_RUN:=0}"
 export NETKIT_OUTPUT_DIR NETKIT_MAX_HOSTS NETKIT_PING_TARGETS NETKIT_DNS_DOMAIN
-export NETKIT_STRICT NETKIT_YES NETKIT_ALLOW_RAW
+export NETKIT_STRICT NETKIT_YES NETKIT_ALLOW_RAW NETKIT_DRY_RUN
 
 # ---- Color & logging ----
 if [[ -t 2 ]] && [[ "${NO_COLOR:-}" == "" ]]; then
@@ -44,6 +45,10 @@ log_ok()   { printf "%s[ ok  ]%s %s\n" "${C_GRN}" "${C_RESET}" "$*" >&2; }
 log_warn() { printf "%s[warn ]%s %s\n" "${C_YEL}" "${C_RESET}" "$*" >&2; }
 log_err()  { printf "%s[error]%s %s\n" "${C_RED}" "${C_RESET}" "$*" >&2; }
 log_dim()  { printf "%s%s%s\n" "${C_DIM}" "$*" "${C_RESET}" >&2; }
+log_dry()  { printf "%s[dry-run]%s %s\n" "${C_YEL}" "${C_RESET}" "$*" >&2; }
+
+# True when --dry-run / NETKIT_DRY_RUN=1 is active.
+dry_run() { [[ "${NETKIT_DRY_RUN:-0}" == "1" ]]; }
 
 die() { log_err "$*"; exit 1; }
 

@@ -6,6 +6,7 @@
 #   interfaces            List network interfaces with kind, ip, status, speed
 #   discover [--active]   Discover LAN hosts (safe, ARP-only by default)
 #   dns                   Show DNS resolvers and per-service config
+#   mdns [--duration N]   Browse Bonjour / mDNS services on the LAN
 #   topology [--active]   Map local topology; supports --mermaid output
 #   quality               Latency / jitter / packet loss / DNS timing
 #   diagnose              Dev-workflow connectivity (GitHub, DNS, Docker, VPN)
@@ -24,6 +25,8 @@
 #   --yes                 Auto-confirm prompts (also: NETKIT_YES=1)
 #   --allow-raw           Allow raw-packet operations like arp-scan
 #                         (also: NETKIT_ALLOW_RAW=1)
+#   --dry-run             Print planned probes without executing them
+#                         (also: NETKIT_DRY_RUN=1)
 #   --version, -V         Print version and exit
 #   --help, -h            Show this help
 #
@@ -53,6 +56,7 @@ while (( $# )); do
   case "$1" in
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --dry-run) export NETKIT_DRY_RUN=1; shift ;;
     --version|-V)
       v="$(cat "${NETKIT_ROOT}/VERSION" 2>/dev/null || echo unknown)"
       echo "netkit ${v}"; exit 0 ;;
@@ -74,6 +78,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/discovery/hosts.sh" "$@" ;;
   dns)
     "${NETKIT_ROOT}/scripts/discovery/dns.sh" "$@" ;;
+  mdns|bonjour)
+    "${NETKIT_ROOT}/scripts/discovery/mdns.sh" "$@" ;;
   topology|topo|map)
     "${NETKIT_ROOT}/scripts/topology/map.sh" "$@" ;;
   quality|ping)

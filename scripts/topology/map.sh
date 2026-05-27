@@ -38,6 +38,7 @@ while (( $# )); do
     --subnet) SUBNET="$2"; shift 2 ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --dry-run) export NETKIT_DRY_RUN=1; shift ;;
     -h|--help)
       awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       exit 0 ;;
@@ -58,6 +59,23 @@ GATEWAY=$(default_gateway || echo "")
 LOCAL_IP=$(iface_ipv4 "$IFACE" || echo "")
 HW_PORT=$(iface_hwport "$IFACE" || echo "")
 KIND=$(iface_kind "$IFACE" || echo other)
+
+if dry_run; then
+  log_dry "topology would:"
+  log_dry "  interface  : $IFACE ($KIND, $LOCAL_IP)"
+  log_dry "  gateway    : $GATEWAY"
+  log_dry "  subnet     : $SUBNET"
+  log_dry "  hosts      : call hosts.sh ${HOSTS_FLAGS[*]:- (passive)}"
+  if (( DO_TRACE )); then
+    if has_cmd mtr && [[ "${NETKIT_ALLOW_RAW:-0}" == "1" ]]; then
+      log_dry "  traceroute : sudo -n mtr -r -c 10 -j $TRACE_TARGET   (with --allow-raw)"
+    else
+      log_dry "  traceroute : traceroute -n -w 1 -q 1 $TRACE_TARGET"
+    fi
+  fi
+  log_dry "no packets sent."
+  exit 0
+fi
 
 log_info "Mapping via $IFACE ($KIND, $LOCAL_IP) → gateway $GATEWAY"
 

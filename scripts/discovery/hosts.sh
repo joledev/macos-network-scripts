@@ -36,6 +36,7 @@ while (( $# )); do
     --force) FORCE=1; shift ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --dry-run) export NETKIT_DRY_RUN=1; shift ;;
     -h|--help)
       sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -55,6 +56,27 @@ fi
 [[ -z "$SUBNET" ]] && die "Could not derive subnet for $IFACE. Pass --subnet 192.168.x.0/24."
 
 guard_subnet_size "$SUBNET" "$FORCE"
+
+if dry_run; then
+  host_count=$(cidr_host_count "$SUBNET" 2>/dev/null || echo "?")
+  log_dry "discover would:"
+  log_dry "  interface  : $IFACE"
+  log_dry "  subnet     : $SUBNET (${host_count} usable hosts)"
+  log_dry "  read ARP   : arp -an   (passive, always)"
+  if (( ACTIVE )); then
+    if has_cmd nmap; then
+      log_dry "  active     : nmap -sn -e $IFACE $SUBNET"
+    else
+      log_dry "  active     : parallel ping sweep (one ICMP per host, 300 ms timeout)"
+    fi
+  fi
+  if (( USE_ARPSCAN )); then
+    log_dry "  arp-scan   : sudo -n arp-scan --interface=$IFACE --localnet (requires --allow-raw)"
+  fi
+  log_dry "  mdns warmup: dns-sd -B _services._dns-sd._udp local. (2 s)"
+  log_dry "no packets sent."
+  exit 0
+fi
 
 if (( ACTIVE )); then
   guard_active "$SUBNET"

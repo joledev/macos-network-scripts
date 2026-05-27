@@ -33,6 +33,7 @@ while (( $# )); do
     --allow-partial) ALLOW_PARTIAL=1; shift ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    --dry-run) export NETKIT_DRY_RUN=1; shift ;;
     -h|--help)
       awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       exit 0 ;;
@@ -41,7 +42,8 @@ while (( $# )); do
 done
 
 # --arpscan implies --allow-raw OR strict mode will block it. Tell the user.
-if (( USE_ARPSCAN )) && [[ "${NETKIT_ALLOW_RAW:-0}" != "1" ]] && [[ "${NETKIT_STRICT:-1}" == "1" ]]; then
+# Skip the check entirely under --dry-run so the user can see the full plan.
+if ! dry_run && (( USE_ARPSCAN )) && [[ "${NETKIT_ALLOW_RAW:-0}" != "1" ]] && [[ "${NETKIT_STRICT:-1}" == "1" ]]; then
   die "--arpscan requires --allow-raw (or NETKIT_ALLOW_RAW=1) because arp-scan needs sudo."
 fi
 
@@ -59,8 +61,8 @@ fi
 
 # If --active was requested, confirm ONCE at the report level (so the user
 # isn't reprompted by each submodule and so we don't write a misleading
-# 0-hosts report when they decline).
-if (( ACTIVE )); then
+# 0-hosts report when they decline). Skip the prompt under --dry-run.
+if (( ACTIVE )) && ! dry_run; then
   if [[ -n "$SUBNET" ]]; then
     guard_active "$SUBNET"
   else
@@ -97,6 +99,23 @@ if [[ -n "$IFACE" ]]; then
   TOPO_FLAGS+=("--interface" "$IFACE")
   TOPO_MMD_FLAGS+=("--interface" "$IFACE")
   PING_FLAGS+=("--interface" "$IFACE")
+fi
+
+# Dry-run branch: now that all flag arrays are populated, print the plan
+# and exit. No temp dir, no probes, no files written.
+if dry_run; then
+  log_dry "report would invoke (interface=${IFACE:-auto}, active=${ACTIVE}, traceroute=${INCLUDE_TRACE}, arpscan=${USE_ARPSCAN}):"
+  log_dry "  scripts/discovery/interfaces.sh --json"
+  log_dry "  scripts/discovery/dns.sh        --json"
+  log_dry "  scripts/discovery/hosts.sh      ${HOSTS_FLAGS[*]}"
+  log_dry "  scripts/quality/ping.sh         ${PING_FLAGS[*]}"
+  log_dry "  scripts/diagnostics/dev.sh      --json"
+  log_dry "  scripts/inventory/system.sh     --json"
+  log_dry "  scripts/topology/map.sh         ${TOPO_FLAGS[*]}"
+  log_dry "  scripts/topology/map.sh         ${TOPO_MMD_FLAGS[*]}"
+  log_dry "would write: output/report-<ts>.{md,json}, output/topology-<ts>.mmd"
+  log_dry "no probes executed, no files written."
+  exit 0
 fi
 
 # Per-module temp files (so we can pass paths to python instead of inlining JSON)
