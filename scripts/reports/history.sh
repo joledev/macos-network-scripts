@@ -16,19 +16,27 @@ FORMAT="text"
 LIMIT=10
 SHOW_ALL=0
 
+die_usage() { log_err "$*"; exit 2; }
+
 while (( $# )); do
   case "$1" in
     --json) FORMAT="json"; shift ;;
     --text) FORMAT="text"; shift ;;
     --md)   FORMAT="md"; shift ;;
-    --limit) LIMIT="$2"; shift 2 ;;
+    --limit)
+      [[ -n "${2:-}" ]] || die_usage "--limit requires a positive integer"
+      LIMIT="$2"; shift 2 ;;
     --all) SHOW_ALL=1; shift ;;
     -h|--help)
       sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
-    *) die "Unknown flag: $1" ;;
+    *) die_usage "Unknown flag: $1" ;;
   esac
 done
+
+# Validate --limit. Reject non-integers, zero and negative values up front.
+[[ "$LIMIT" =~ ^[0-9]+$ ]] || die_usage "--limit must be a positive integer (got: ${LIMIT})"
+(( LIMIT > 0 )) || die_usage "--limit must be > 0 (got: ${LIMIT})"
 
 ensure_output_dir
 export NETKIT_FMT="$FORMAT" NETKIT_LIMIT="$LIMIT" NETKIT_SHOW_ALL="$SHOW_ALL"

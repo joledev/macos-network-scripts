@@ -26,6 +26,8 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 FORMAT="text"
 ARGS=()
 
+die_usage() { log_err "$*"; exit 2; }
+
 while (( $# )); do
   case "$1" in
     --json) FORMAT="json"; shift ;;
@@ -34,9 +36,16 @@ while (( $# )); do
     -h|--help)
       sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
+    --*) die_usage "Unknown flag: $1" ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
+
+# Reject extra positionals — silently ignoring them gives a misleading
+# "successful" diff against a different pair than the user typed.
+if (( ${#ARGS[@]} > 2 )); then
+  die_usage "diff accepts at most two report refs (got ${#ARGS[@]}: ${ARGS[*]})"
+fi
 
 A_RAW="${ARGS[0]:-previous}"
 B_RAW="${ARGS[1]:-latest}"
