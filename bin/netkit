@@ -15,6 +15,9 @@
 #   wifi                  Wi-Fi RSSI, channel, security + nearby APs scan
 #   cameras               IP camera discovery (ONVIF + RTSP + HTTP fingerprint)
 #   starlink              Starlink dish status via gRPC API
+#   cert-check            TLS audit for arbitrary host:port (chain, versions, HSTS)
+#   snmp                  Read-only SNMP audit (system, interfaces, ARP, bridge FDB)
+#   unifi                 UniFi Controller inventory (devices, clients, WLANs)
 #   inventory             OS, hardware and installed tools
 #   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
 #   report [--active]     Generate combined md/json/mermaid report under output/
@@ -99,6 +102,12 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/diagnostics/wifi.sh" "$@" ;;
   starlink|dishy)
     "${NETKIT_ROOT}/scripts/diagnostics/starlink.sh" "$@" ;;
+  cert-check|cert|tls)
+    "${NETKIT_ROOT}/scripts/diagnostics/cert_check.sh" "$@" ;;
+  snmp)
+    "${NETKIT_ROOT}/scripts/diagnostics/snmp.sh" "$@" ;;
+  unifi|ubnt)
+    "${NETKIT_ROOT}/scripts/diagnostics/unifi.sh" "$@" ;;
   cameras|onvif)
     "${NETKIT_ROOT}/scripts/discovery/cameras.sh" "$@" ;;
   inventory|inv)

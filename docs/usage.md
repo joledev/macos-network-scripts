@@ -116,6 +116,72 @@ Foscam, TP-Link Tapo, Ubiquiti UniFi, etc.).
 ./bin/netkit cameras --duration 5 --json
 ```
 
+### `cert-check` (alias `cert`, `tls`)
+
+TLS audit for any `host:port`. Pulls the certificate chain, validity
+dates + days-until-expiry, key info, SAN list, supported TLS versions
+(individually probed: TLS 1.0 / 1.1 / 1.2 / 1.3), negotiated cipher,
+HSTS header, hostname mismatch detection, self-signed detection.
+
+Pure stdlib (no `openssl s_client` / no `sslyze` / no `testssl.sh`).
+
+```fish
+./bin/netkit cert-check --host github.com
+./bin/netkit cert-check --host mail.client.com --port 993 --sni client.com
+./bin/netkit cert-check --host 192.168.1.1 --port 8443 --insecure   # self-signed
+./bin/netkit cert-check --host example.com --json
+```
+
+Use cases: pre-renewal cert audits, validating TLS posture on a customer
+server, catching TLS 1.0/1.1 still accepted, confirming HSTS deployment.
+
+### `snmp`
+
+Read-only SNMP audit of a managed switch / router / AP. Pulls system
+info, full interface table (per-port speed, in/out octets, errors), ARP
+table, and optionally the bridge MAC-forwarding table for MAC→port
+mapping on managed switches.
+
+Requires `net-snmp` (`brew install net-snmp`).
+
+```fish
+./bin/netkit snmp --host 192.168.1.10                    # default community 'public'
+./bin/netkit snmp --host 192.168.1.10 --community secret --version 2c
+./bin/netkit snmp --host 192.168.1.10 --bridge --md     # also MAC fwd table
+./bin/netkit snmp --host 192.168.1.10 --timeout 10 --retries 3 --json
+```
+
+Default community `public` is read-only on most managed switches by
+default — override with `--community` when the client used a different
+read string. Strictly READ-ONLY: only invokes `snmpget` / `snmpwalk`,
+never `snmpset`.
+
+### `unifi` (alias `ubnt`)
+
+Pulls a full inventory from a UniFi Network Controller / Cloud Key /
+UDM / UDM Pro / Dream Machine. Works with both modern UniFi OS
+(`/api/auth/login`) and legacy controllers (`/api/login`) — auto-detects.
+
+**Auth via env vars only** (never on the command line):
+
+```fish
+set -x NETKIT_UNIFI_HOST  https://192.168.1.1
+set -x NETKIT_UNIFI_USER  netaudit
+set -x NETKIT_UNIFI_PASS  '...'                # paste between single quotes
+./bin/netkit unifi                              # default site, JSON output
+./bin/netkit unifi --site default --insecure   # for self-signed CK/UDM
+./bin/netkit unifi --md > unifi-inventory.md
+```
+
+For client engagements: create a **read-only** local account on the
+controller for the audit (`Settings → Admins → Add Admin → Role: Viewer`),
+use those credentials, then disable/delete the account when done.
+
+Reports: sites · devices (APs, switches, gateways) with model/version/IP/
+uptime/client count/uplink speed · associated clients (wired + wireless
+with signal/channel/radio) · WLAN configs (SSID, security, VLAN,
+guest, hidden) · subsystem health.
+
 ### `starlink` (alias `dishy`)
 
 Queries a Starlink dish on its gRPC API. Defaults to

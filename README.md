@@ -76,6 +76,9 @@ Reports land under `output/`:
 ./bin/netkit wifi [--scan]         RSSI, channel, security + nearby APs
 ./bin/netkit cameras               IP camera discovery (ONVIF + RTSP)
 ./bin/netkit starlink              Starlink dish status (needs grpcurl)
+./bin/netkit cert-check --host H   TLS audit for arbitrary host:port
+./bin/netkit snmp --host H         Read-only SNMP walk (needs net-snmp)
+./bin/netkit unifi                 UniFi Controller inventory (env-based auth)
 ./bin/netkit inventory             OS / hardware / tools
 ./bin/netkit report                Combined report (default safe mode)
 ./bin/netkit history [--all]       List past reports under output/

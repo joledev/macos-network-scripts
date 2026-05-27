@@ -20,4 +20,7 @@ graphviz      # DOT renderer; mermaid is preferred but DOT is a fallback
 # Tier-A service tools (network-services workflows)
 speedtest     # Ookla CLI for ISP throughput tests (netkit speedtest)
 grpcurl       # gRPC client for Starlink dish telemetry (netkit starlink)
+
+# Tier-B service tools (premium / enterprise audits)
+net-snmp      # snmpget/snmpwalk for read-only SNMP audits (netkit snmp)
 # - shellcheck + ruff are dev-only and installed separately, not via brew.
