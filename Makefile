@@ -53,7 +53,6 @@ test: ## Run pytest suite (tests/)
 lint: ## Run shellcheck on bash scripts + ruff on Python
 	@if command -v shellcheck >/dev/null 2>&1; then \
 		echo "==> shellcheck"; \
-		shellcheck --severity=warning bin/netkit bin/netkit-doctor scripts/**/*.sh scripts/*.sh 2>/dev/null || true; \
 		shellcheck --severity=warning bin/netkit bin/netkit-doctor $$(find scripts -name '*.sh'); \
 	else \
 		echo "shellcheck not installed (brew install shellcheck) — skipping"; \
