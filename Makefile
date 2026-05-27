@@ -4,7 +4,7 @@ SHELL := /bin/bash
 
 NETKIT := ./bin/netkit
 
-.PHONY: help install install-brew doctor discover topology quality diagnose inventory report clean
+.PHONY: help install install-brew doctor discover topology quality diagnose inventory report clean test lint fmt
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z_-]+:.*##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -45,3 +45,26 @@ report: ## Generate full report (md + json + mermaid)
 clean: ## Remove generated reports (keeps .gitkeep)
 	@find output -type f ! -name '.gitkeep' -delete
 	@echo "Cleared output/"
+
+test: ## Run pytest suite (tests/)
+	@command -v pytest >/dev/null 2>&1 || { echo "pytest not installed (pipx install pytest)"; exit 1; }
+	@pytest tests/
+
+lint: ## Run shellcheck on bash scripts + ruff on Python
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		echo "==> shellcheck"; \
+		shellcheck --severity=warning bin/netkit bin/netkit-doctor scripts/**/*.sh scripts/*.sh 2>/dev/null || true; \
+		shellcheck --severity=warning bin/netkit bin/netkit-doctor $$(find scripts -name '*.sh'); \
+	else \
+		echo "shellcheck not installed (brew install shellcheck) — skipping"; \
+	fi
+	@if command -v ruff >/dev/null 2>&1; then \
+		echo "==> ruff"; \
+		ruff check scripts/utils tests; \
+	else \
+		echo "ruff not installed (pipx install ruff) — skipping"; \
+	fi
+
+fmt: ## Format Python with ruff
+	@command -v ruff >/dev/null 2>&1 || { echo "ruff not installed"; exit 1; }
+	@ruff format scripts/utils tests

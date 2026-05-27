@@ -9,7 +9,8 @@ import csv
 import io
 import json
 import sys
-from typing import Any, Iterable, Mapping
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 
 def dump_json(obj: Any, *, indent: int = 2) -> str:
@@ -23,7 +24,7 @@ def dump_csv(rows: Iterable[Mapping[str, Any]]) -> str:
     fieldnames: list[str] = []
     seen: set[str] = set()
     for r in rows:
-        for k in r.keys():
+        for k in r:
             if k not in seen:
                 seen.add(k)
                 fieldnames.append(k)
@@ -43,7 +44,7 @@ def md_table(rows: Iterable[Mapping[str, Any]], columns: list[str] | None = None
         columns = []
         seen: set[str] = set()
         for r in rows:
-            for k in r.keys():
+            for k in r:
                 if k not in seen:
                     seen.add(k)
                     columns.append(k)

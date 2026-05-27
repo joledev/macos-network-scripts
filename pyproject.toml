@@ -1,0 +1,24 @@
+[project]
+name = "macos-network-scripts"
+description = "Defensive macOS network toolkit (netkit)"
+requires-python = ">=3.10"
+dynamic = ["version"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["output", ".cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM"]
+ignore = [
+    "E501",   # line-too-long — handled by formatter
+    "B008",   # function call in default argument — not our pattern
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-q --tb=short"

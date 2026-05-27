@@ -124,6 +124,9 @@ if (( USE_ARPSCAN )); then
     ARPSCAN_REASON="not_installed"
   else
     log_info "Running arp-scan (requires sudo)..."
+    # shellcheck disable=SC2024
+    # SC2024: `sudo cmd > file` opens the file as the current user; that's
+    # what we want — $ARPSCAN_TMP is a per-user mktemp.
     if sudo -n arp-scan --interface="$IFACE" --localnet 2>/dev/null > "$ARPSCAN_TMP"; then
       ARPSCAN_RAN=1
     else

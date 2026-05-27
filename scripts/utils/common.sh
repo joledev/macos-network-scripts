@@ -35,9 +35,9 @@ export NETKIT_STRICT NETKIT_YES NETKIT_ALLOW_RAW NETKIT_DRY_RUN
 
 # ---- Color & logging ----
 if [[ -t 2 ]] && [[ "${NO_COLOR:-}" == "" ]]; then
-  C_RESET=$'\e[0m'; C_DIM=$'\e[2m'; C_RED=$'\e[31m'; C_YEL=$'\e[33m'; C_GRN=$'\e[32m'; C_CYA=$'\e[36m'; C_BLD=$'\e[1m'
+  C_RESET=$'\e[0m'; C_DIM=$'\e[2m'; C_RED=$'\e[31m'; C_YEL=$'\e[33m'; C_GRN=$'\e[32m'; C_CYA=$'\e[36m'
 else
-  C_RESET=""; C_DIM=""; C_RED=""; C_YEL=""; C_GRN=""; C_CYA=""; C_BLD=""
+  C_RESET=""; C_DIM=""; C_RED=""; C_YEL=""; C_GRN=""; C_CYA=""
 fi
 
 log_info() { printf "%s[netkit]%s %s\n" "${C_CYA}" "${C_RESET}" "$*" >&2; }
@@ -129,17 +129,19 @@ iface_hwport() {
   '
 }
 
-# Classify an interface as one of: ethernet, wifi, thunderbolt, virtual, other
+# Classify an interface as one of: ethernet, wifi, thunderbolt, virtual, other.
+# Order matters: more specific patterns first so they're not shadowed.
 iface_kind() {
   local iface="$1"
   local hp; hp=$(iface_hwport "$iface")
   local hp_lower; hp_lower=$(printf '%s' "$hp" | tr '[:upper:]' '[:lower:]')
   case "$hp_lower" in
-    *wi-fi*|*airport*)               echo "wifi" ;;
-    *ethernet*|*lan*|*usb*ethernet*) echo "ethernet" ;;
-    *thunderbolt*)                   echo "thunderbolt" ;;
-    "")                              echo "virtual" ;;
-    *)                               echo "other" ;;
+    *wi-fi*|*airport*)        echo "wifi" ;;
+    *usb*ethernet*)           echo "ethernet" ;;
+    *ethernet*|*lan*)         echo "ethernet" ;;
+    *thunderbolt*)            echo "thunderbolt" ;;
+    "")                       echo "virtual" ;;
+    *)                        echo "other" ;;
   esac
 }
 

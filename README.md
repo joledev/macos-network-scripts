@@ -1,5 +1,7 @@
 # macos-network-scripts
 
+[![CI](https://github.com/joledev/macos-network-scripts/actions/workflows/ci.yml/badge.svg)](https://github.com/joledev/macos-network-scripts/actions/workflows/ci.yml)
+
 A defensive, audit-friendly network toolkit for macOS. Discovers your local
 network, measures connection quality, diagnoses developer-workflow
 connectivity, and produces reports you can keep, diff or hand to an LLM for
@@ -158,7 +160,18 @@ This is a personal toolkit. PRs welcome if you keep:
 
 1. Strict defaults (no root, no aggressive flags, subnet-bounded).
 2. No telemetry, no secrets, no third-party services without opt-in.
-3. ShellCheck-clean Bash, stdlib-only Python.
+3. ShellCheck-clean Bash, ruff-clean stdlib-only Python.
+
+Run the test suite locally with:
+
+```fish
+brew install shellcheck
+pipx install pytest ruff
+make test     # 48 tests (pytest)
+make lint     # shellcheck + ruff
+```
+
+CI runs the same on every push via [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## License
 

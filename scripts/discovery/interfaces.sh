@@ -24,29 +24,9 @@ while (( $# )); do
   esac
 done
 
-# Build list of (device, hwport) pairs
-mapfile -t DEVICES < <(networksetup -listallhardwareports 2>/dev/null \
-  | awk '
-      /^Hardware Port:/ { hp = substr($0, index($0,$3)) }
-      /^Device:/        { print $2 "\t" hp }
-    ')
-
-# Add a default-route marker
-DEFAULT_IFACE=$(default_route_iface || true)
-DEFAULT_GW=$(default_gateway || true)
-
-# Get link speed via networksetup -getMedia (if supported by the adapter)
-iface_media() {
-  local iface="$1"
-  networksetup -getMedia "$iface" 2>/dev/null \
-    | awk -F': ' '/^Active:/ {print $2; exit}'
-}
-
-# Get up/down status from ifconfig
-iface_status() {
-  local iface="$1"
-  ifconfig "$iface" 2>/dev/null | awk '/status:/ {print $2; exit}'
-}
+# All interface parsing lives in the Python heredoc below — it re-queries
+# networksetup / ifconfig / route via subprocess. The previously-here Bash
+# parsing was dead code shadowed by the Python re-implementation.
 
 # Build JSON via python to keep escaping correct
 emit_json() {

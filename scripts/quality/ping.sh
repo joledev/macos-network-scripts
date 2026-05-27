@@ -127,13 +127,10 @@ PY
 done
 echo "]" >> "$RESULTS_FILE"
 
-# DNS lookup timing
+# DNS lookup timing — dig prints "Query time: N msec" in its full output.
 DNS_TIME_MS=""
 if has_cmd dig; then
-  DNS_RAW=$(dig +stats +noall +answer "$NETKIT_DNS_DOMAIN" 2>/dev/null || true)
-  # dig prints Query time elsewhere; do a second pass
-  Q=$(dig "$NETKIT_DNS_DOMAIN" 2>/dev/null | awk '/Query time:/ {print $4; exit}')
-  DNS_TIME_MS="${Q:-}"
+  DNS_TIME_MS="$(dig "$NETKIT_DNS_DOMAIN" 2>/dev/null | awk '/Query time:/ {print $4; exit}')"
 fi
 
 python3 - <<PY

@@ -145,6 +145,10 @@ if (( DO_TRACE )); then
   fi
   if (( use_mtr )); then
     log_info "Running mtr to $TRACE_TARGET (10 cycles, sudo)..."
+    # shellcheck disable=SC2024
+    # SC2024 warns that `sudo cmd > file` opens `file` as the current user.
+    # That is exactly what we want — $TRACE_FILE is our mktemp under the
+    # invoking user; only mtr itself runs as root.
     sudo -n mtr -r -c 10 -j "$TRACE_TARGET" 2>/dev/null > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
     if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d and d.get("report",{}).get("hubs") else 1)' "$TRACE_FILE" 2>/dev/null; then
       :

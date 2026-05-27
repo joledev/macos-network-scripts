@@ -30,6 +30,10 @@ venv/
 *.swp
 *.swo
 
+# Test/lint caches
+.pytest_cache/
+.ruff_cache/
+
 # Claude Code local state
 .claude/settings.local.json
 

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: brew install shellcheck
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest + ruff
+        run: pip install --upgrade pytest ruff
+
+      - name: shellcheck
+        run: |
+          shellcheck --severity=warning bin/netkit bin/netkit-doctor $(find scripts -name '*.sh')
+
+      - name: ruff
+        run: ruff check scripts/utils tests
+
+      - name: pytest
+        # Tests use ./bin/netkit via subprocess. They write to a tmp output
+        # dir per test (via NETKIT_OUTPUT_DIR), do not run real probes, and
+        # do not need root.
+        run: pytest tests/ -v
+        env:
+          NETKIT_STRICT: "1"
+          NETKIT_YES: "0"
+          NETKIT_ALLOW_RAW: "0"
