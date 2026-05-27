@@ -30,9 +30,6 @@ while (( $# )); do
     --port)
       [[ -n "${2:-}" ]] || die_usage "--port requires a number"
       PORT="$2"; shift 2 ;;
-    --user-agent)
-      [[ -n "${2:-}" ]] || die_usage "--user-agent requires a value"
-      export NETKIT_USER_AGENT="$2"; shift 2 ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     --dry-run) export NETKIT_DRY_RUN=1; shift ;;
