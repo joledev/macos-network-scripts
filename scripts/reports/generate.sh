@@ -59,6 +59,7 @@ ensure_output_dir
 TS=$(timestamp)
 JSON_OUT="${NETKIT_OUTPUT_DIR}/report-${TS}.json"
 MD_OUT="${NETKIT_OUTPUT_DIR}/report-${TS}.md"
+HTML_OUT="${NETKIT_OUTPUT_DIR}/report-${TS}.html"
 MMD_OUT="${NETKIT_OUTPUT_DIR}/topology-${TS}.mmd"
 
 [[ -z "$IFACE" ]] && IFACE=$(pick_interface || echo "")
@@ -190,7 +191,7 @@ run_module "topology_mermaid" "$MMD_OUT" 'graph TD' \
 # Combine all JSONs
 export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_IFACE_HINT="$IFACE"
 export NETKIT_ACTIVE="$ACTIVE" NETKIT_TRACE="$INCLUDE_TRACE"
-export NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MD_OUT="$MD_OUT"
+export NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MD_OUT="$MD_OUT" NETKIT_HTML_OUT="$HTML_OUT"
 export NETKIT_ERRORS_FILE="$ERRORS_FILE"
 export NETKIT_REDACT="$REDACT" NETKIT_ROOT
 
@@ -389,10 +390,21 @@ out.append("- No credential, token or secret is collected or written.")
 
 with open(os.environ["NETKIT_MD_OUT"], "w") as f:
     f.write("\n".join(out) + "\n")
+
+# Render HTML report (self-contained, prints to PDF cleanly).
+try:
+    import html_report
+    brand = os.environ.get("NETKIT_REPORT_BRAND", "Network Diagnostic Report")
+    with open(os.environ["NETKIT_HTML_OUT"], "w") as f:
+        f.write(html_report.render(data, brand=brand))
+except Exception as e:
+    # HTML is opt-out-able; failing here shouldn't break MD/JSON output.
+    print(f"warn: html render failed: {e}", file=sys.stderr)
 PY
 
 log_ok "Report → ${MD_OUT/#$NETKIT_ROOT\//}"
 log_ok "JSON   → ${JSON_OUT/#$NETKIT_ROOT\//}"
+log_ok "HTML   → ${HTML_OUT/#$NETKIT_ROOT\//}"
 log_ok "Mermaid→ ${MMD_OUT/#$NETKIT_ROOT\//}"
 
 case "$STDOUT_FMT" in

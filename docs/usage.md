@@ -192,11 +192,22 @@ Homebrew packages.
 
 ### `report` (alias `all`)
 
-Runs every module above and writes three files under `output/`.
+Runs every module above and writes **four** files under `output/`:
+
+- `report-<ts>.md` — Markdown summary
+- `report-<ts>.json` — machine-readable
+- `report-<ts>.html` — self-contained HTML with print-friendly CSS;
+  open in Safari/Chrome and use **File → Print → Save as PDF** to
+  hand off to a customer. Set `NETKIT_REPORT_BRAND="My Company"` to
+  change the header title.
+- `topology-<ts>.mmd` — Mermaid diagram
 
 ```fish
 ./bin/netkit report
 ./bin/netkit report --active --include-traceroute --interface en7
+set -x NETKIT_REPORT_BRAND "Joel - Network Audit"
+./bin/netkit report --active
+open output/(ls -t output | grep '\.html$' | head -1)
 ```
 
 ### `report --redact <level>`
