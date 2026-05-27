@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# netkit doctor — verify environment, tools and permissions.
+
+set -uo pipefail
+NETKIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../scripts/utils/common.sh
+source "${NETKIT_ROOT}/scripts/utils/common.sh"
+
+FAIL=0
+OPTIONAL_MISSING=0
+
+probe_version() {
+  # Best-effort version detection across GNU and BSD tools. Returns "(installed)" if all probes fail.
+  local cmd="$1" v=""
+  case "$cmd" in
+    ifconfig|route|arp|ping|netstat)
+      # BSD tools — no version flag. Just say (installed).
+      echo "(installed)"; return 0 ;;
+    networksetup)
+      echo "(installed)"; return 0 ;;
+    dig)
+      v=$(dig -v 2>&1 | head -1) ;;
+    nmap|arp-scan|tshark|tcpdump)
+      v=$("$cmd" --version 2>&1 | head -1) ;;
+    iperf3|mtr|jq|yq|curl|python3|go|rustc|cargo|node|npm|docker|podman|tailscale|kubectl|brew|git|ssh|claude)
+      v=$("$cmd" --version 2>&1 | head -1) ;;
+    *)
+      v=$("$cmd" --version 2>&1 | head -1 || true) ;;
+  esac
+  if [[ -z "$v" ]] || [[ "$v" == *"illegal option"* ]] || [[ "$v" == *"unrecognized"* ]] || [[ "$v" == *"Invalid option"* ]]; then
+    echo "(installed)"
+  else
+    echo "$v"
+  fi
+}
+
+check() {
+  local label="$1" cmd="$2" required="${3:-optional}"
+  if has_cmd "$cmd"; then
+    local v
+    v=$(probe_version "$cmd")
+    log_ok "${label} — ${v:0:60}"
+  else
+    if [[ "$required" == "required" ]]; then
+      log_err "${label} — NOT FOUND (required)"
+      FAIL=$((FAIL+1))
+    else
+      log_warn "${label} — not installed (optional, brew install ${cmd})"
+      OPTIONAL_MISSING=$((OPTIONAL_MISSING+1))
+    fi
+  fi
+}
+
+echo "netkit doctor"
+echo "============="
+echo
+
+log_info "Repo root: ${NETKIT_ROOT}"
+log_info "Strict mode: NETKIT_STRICT=${NETKIT_STRICT}"
+log_info "Max hosts:   NETKIT_MAX_HOSTS=${NETKIT_MAX_HOSTS}"
+echo
+
+# Required built-ins
+check "python3 (3.x stdlib)" python3 required
+check "ifconfig (macOS net base)" ifconfig required
+check "networksetup (macOS net config)" networksetup required
+check "route (routing table)" route required
+check "arp (ARP cache)" arp required
+check "ping" ping required
+check "dig" dig optional
+check "curl" curl required
+
+echo
+log_info "Optional tools (brew install ...):"
+check "nmap" nmap optional
+check "arp-scan" arp-scan optional
+check "iperf3" iperf3 optional
+check "mtr" mtr optional
+check "jq" jq optional
+check "yq" yq optional
+check "tcpdump" tcpdump optional
+check "tshark" tshark optional
+check "tailscale" tailscale optional
+check "docker" docker optional
+check "podman" podman optional
+
+echo
+log_info "Interface check"
+IFACE=$(pick_interface || echo "")
+if [[ -n "$IFACE" ]]; then
+  ip=$(iface_ipv4 "$IFACE")
+  hp=$(iface_hwport "$IFACE")
+  kind=$(iface_kind "$IFACE")
+  cidr=$(iface_subnet_cidr "$IFACE" || echo "?")
+  log_ok "Picked interface ${IFACE} (${kind}): ip=${ip} subnet=${cidr} port=\"${hp}\""
+  log_ok "Gateway: $(default_gateway)"
+else
+  log_err "No usable interface found. Connect to a network."
+  FAIL=$((FAIL+1))
+fi
+
+echo
+log_info "Output directory: ${NETKIT_OUTPUT_DIR}"
+if [[ -d "$NETKIT_OUTPUT_DIR" ]]; then
+  log_ok "exists and writable: $([[ -w "$NETKIT_OUTPUT_DIR" ]] && echo yes || echo no)"
+else
+  mkdir -p "$NETKIT_OUTPUT_DIR" && log_ok "created"
+fi
+
+echo
+echo "Summary:"
+echo "  required errors : ${FAIL}"
+echo "  optional missing: ${OPTIONAL_MISSING}"
+if (( FAIL > 0 )); then
+  log_err "Doctor reports ${FAIL} required failures."
+  exit 1
+else
+  log_ok "Doctor passes. Ready to scan."
+fi

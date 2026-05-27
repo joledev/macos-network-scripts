@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# netkit — main CLI for macos-network-scripts.
+#
+# Subcommands:
+#   doctor                Verify environment, tools, and permissions
+#   interfaces            List network interfaces with kind, ip, status, speed
+#   discover [--active]   Discover LAN hosts (safe, ARP-only by default)
+#   topology [--active]   Map local topology; supports --mermaid output
+#   quality               Latency / jitter / packet loss / DNS timing
+#   diagnose              Dev-workflow connectivity (GitHub, DNS, Docker, VPN)
+#   inventory             OS, hardware and installed tools
+#   report [--active]     Generate combined md/json/mermaid report under output/
+#
+# Global flags (forwarded to subcommands when applicable):
+#   --interface <iface>   Force a specific interface (e.g. en7)
+#   --subnet <cidr>       Force a specific subnet (e.g. 192.168.1.0/24)
+#   --json | --md | --text | --mermaid    Output format (default: text)
+#   --active              Send light probes (ping sweep) to populate ARP
+#   --force               Bypass safety guards (e.g. large subnet)
+#   --yes                 Auto-confirm prompts
+#   --help, -h            Show this help
+#
+# Examples:
+#   netkit doctor
+#   netkit interfaces --md
+#   netkit discover --active --interface en7
+#   netkit quality --count 30 --targets 1.1.1.1,github.com
+#   netkit report --active --include-traceroute
+
+set -euo pipefail
+
+NETKIT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export NETKIT_ROOT
+# shellcheck source=../scripts/utils/common.sh
+source "${NETKIT_ROOT}/scripts/utils/common.sh"
+
+usage() {
+  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+CMD="${1:-}"
+[[ -z "$CMD" || "$CMD" == "-h" || "$CMD" == "--help" ]] && { usage; exit 0; }
+shift || true
+
+case "$CMD" in
+  doctor)
+    "${NETKIT_ROOT}/bin/netkit-doctor" "$@" ;;
+  interfaces)
+    "${NETKIT_ROOT}/scripts/discovery/interfaces.sh" "$@" ;;
+  discover|hosts)
+    "${NETKIT_ROOT}/scripts/discovery/hosts.sh" "$@" ;;
+  dns)
+    "${NETKIT_ROOT}/scripts/discovery/dns.sh" "$@" ;;
+  topology|topo|map)
+    "${NETKIT_ROOT}/scripts/topology/map.sh" "$@" ;;
+  quality|ping)
+    "${NETKIT_ROOT}/scripts/quality/ping.sh" "$@" ;;
+  diagnose|diag|dev)
+    "${NETKIT_ROOT}/scripts/diagnostics/dev.sh" "$@" ;;
+  inventory|inv)
+    "${NETKIT_ROOT}/scripts/inventory/system.sh" "$@" ;;
+  report|all)
+    "${NETKIT_ROOT}/scripts/reports/generate.sh" "$@" ;;
+  *)
+    log_err "Unknown subcommand: $CMD"
+    usage
+    exit 2
+    ;;
+esac
