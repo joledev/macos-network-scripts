@@ -15,17 +15,41 @@ COUNT=20
 IFACE=""
 TARGETS=""
 
+die_usage() { log_err "$*"; exit 2; }
+
 while (( $# )); do
   case "$1" in
     --json) FORMAT="json"; shift ;;
     --md) FORMAT="md"; shift ;;
     --text) FORMAT="text"; shift ;;
-    --count) COUNT="$2"; shift 2 ;;
+    --count)
+      [[ -n "${2:-}" ]] || die_usage "--count requires an integer 1..1000"
+      COUNT="$2"; shift 2 ;;
     --interface) IFACE="$2"; shift 2 ;;
     --targets) TARGETS="$2"; shift 2 ;;
-    *) die "Unknown flag: $1" ;;
+    -h|--help)
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+      exit 0 ;;
+    *) die_usage "Unknown flag: $1" ;;
   esac
 done
+
+# Validate --count: bounded positive integer (cap at 1000 — anything bigger
+# is a runaway and ping would hammer the link for minutes).
+[[ "$COUNT" =~ ^[0-9]+$ ]] || die_usage "--count must be an integer (got: ${COUNT})"
+(( COUNT >= 1 && COUNT <= 1000 )) || die_usage "--count must be between 1 and 1000 (got: ${COUNT})"
+
+# Validate --targets if provided. Each comma-separated token must match a
+# safe character class (host/IP/domain). Rejects shell metachars, quotes,
+# whitespace — also makes the heredoc interpolation in this script safe.
+if [[ -n "$TARGETS" ]]; then
+  IFS=',' read -r -a _TGT_ARR <<< "$TARGETS"
+  for _t in "${_TGT_ARR[@]}"; do
+    _t="${_t// /}"
+    [[ -z "$_t" ]] && continue
+    [[ "$_t" =~ ^[A-Za-z0-9._:-]+$ ]] || die_usage "--targets contains invalid token: '${_t}' (allowed chars: A-Z a-z 0-9 . _ : -)"
+  done
+fi
 
 guard_no_sudo
 [[ -z "$IFACE" ]] && IFACE=$(pick_interface || true)

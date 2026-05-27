@@ -25,6 +25,9 @@ while (( $# )); do
     --md) FORMAT="md"; shift ;;
     --text) FORMAT="text"; shift ;;
     --ssh-targets) SSH_TARGETS="$2"; shift 2 ;;
+    -h|--help)
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+      exit 0 ;;
     *) die "Unknown flag: $1" ;;
   esac
 done

@@ -36,6 +36,9 @@ while (( $# )); do
     --target) TRACE_TARGET="$2"; shift 2 ;;
     --interface) IFACE="$2"; shift 2 ;;
     --subnet) SUBNET="$2"; shift 2 ;;
+    -h|--help)
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+      exit 0 ;;
     *) die "Unknown flag: $1" ;;
   esac
 done
@@ -94,10 +97,25 @@ mtr_usable() {
 }
 
 if (( DO_TRACE )); then
+  # mtr needs root for raw ICMP. The same opt-in contract that gates
+  # arp-scan applies: even if a sudo timestamp is cached from elsewhere,
+  # we must not run mtr without --allow-raw / NETKIT_ALLOW_RAW=1.
+  use_mtr=0
   if has_cmd mtr && mtr_usable; then
+    if [[ "${NETKIT_ALLOW_RAW:-0}" == "1" ]]; then
+      use_mtr=1
+    elif [[ "${NETKIT_STRICT:-1}" == "1" ]]; then
+      if confirm "Use mtr (raw ICMP via sudo) for traceroute? Plain traceroute works without sudo."; then
+        use_mtr=1
+      fi
+    else
+      log_warn "NETKIT_STRICT=0: allowing sudo -n mtr without explicit confirmation."
+      use_mtr=1
+    fi
+  fi
+  if (( use_mtr )); then
     log_info "Running mtr to $TRACE_TARGET (10 cycles, sudo)..."
     sudo -n mtr -r -c 10 -j "$TRACE_TARGET" 2>/dev/null > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
-    # If mtr produced an empty hubs list anyway, fall back.
     if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d and d.get("report",{}).get("hubs") else 1)' "$TRACE_FILE" 2>/dev/null; then
       :
     else
@@ -106,7 +124,7 @@ if (( DO_TRACE )); then
     fi
   else
     if has_cmd mtr; then
-      log_dim "mtr present but needs sudo; using traceroute (no root)."
+      log_dim "mtr present but raw access not granted; using traceroute."
     fi
     log_info "Running traceroute to $TRACE_TARGET..."
     run_traceroute_plain > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"

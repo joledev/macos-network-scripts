@@ -14,6 +14,9 @@ case "${1:-}" in
   --json) FORMAT="json" ;;
   --md)   FORMAT="md" ;;
   --text|"") FORMAT="text" ;;
+  -h|--help)
+    awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+    exit 0 ;;
   *) die "Unknown flag: $1" ;;
 esac
 
@@ -52,11 +55,7 @@ def sh(cmd):
     except subprocess.CalledProcessError:
         return ""
 
-devices = []
-for line in sh("networksetup -listallhardwareports").splitlines():
-    pass
-
-# Re-parse hardware ports
+# Parse hardware ports
 hp_map = {}
 current_hp = None
 for line in sh("networksetup -listallhardwareports").splitlines():

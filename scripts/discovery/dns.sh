@@ -13,6 +13,9 @@ case "${1:-}" in
   --json) FORMAT="json" ;;
   --md)   FORMAT="md" ;;
   --text|"") FORMAT="text" ;;
+  -h|--help)
+    awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+    exit 0 ;;
   *) die "Unknown flag: $1" ;;
 esac
 

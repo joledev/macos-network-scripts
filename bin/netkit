@@ -5,6 +5,7 @@
 #   doctor                Verify environment, tools, and permissions
 #   interfaces            List network interfaces with kind, ip, status, speed
 #   discover [--active]   Discover LAN hosts (safe, ARP-only by default)
+#   dns                   Show DNS resolvers and per-service config
 #   topology [--active]   Map local topology; supports --mermaid output
 #   quality               Latency / jitter / packet loss / DNS timing
 #   diagnose              Dev-workflow connectivity (GitHub, DNS, Docker, VPN)
@@ -44,19 +45,21 @@ usage() {
   sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-# Pre-parse global flags that may appear before the subcommand.
-# Anything we don't recognize is passed through to the subcommand intact.
-PASS=()
+# Pre-parse global flags that may appear BEFORE the subcommand. Stop at
+# the first positional so --help / --version after a subcommand reach the
+# subcommand itself (e.g. `netkit quality --help` → ping.sh usage, not the
+# global usage).
 while (( $# )); do
   case "$1" in
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
-    --version|-V) echo "netkit 0.1.0"; exit 0 ;;
+    --version|-V)
+      v="$(cat "${NETKIT_ROOT}/VERSION" 2>/dev/null || echo unknown)"
+      echo "netkit ${v}"; exit 0 ;;
     -h|--help) usage; exit 0 ;;
-    *) PASS+=("$1"); shift ;;
+    *) break ;;
   esac
 done
-set -- "${PASS[@]}"
 
 CMD="${1:-}"
 [[ -z "$CMD" ]] && { usage; exit 0; }

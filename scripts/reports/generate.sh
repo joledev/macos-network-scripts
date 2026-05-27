@@ -33,6 +33,9 @@ while (( $# )); do
     --allow-partial) ALLOW_PARTIAL=1; shift ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
+    -h|--help)
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
+      exit 0 ;;
     *) die "Unknown flag: $1" ;;
   esac
 done
@@ -179,10 +182,15 @@ try:
 except Exception:
     module_errors = []
 
+try:
+    tool_version = open(os.path.join(os.environ.get("NETKIT_ROOT", ""), "VERSION")).read().strip()
+except OSError:
+    tool_version = "unknown"
+
 report = {
     "meta": {
         "schema_version": "1.0.0",
-        "tool_version": "0.1.0",
+        "tool_version": tool_version,
         "generated_at": os.environ["NETKIT_TS"],
         "interface_hint": os.environ["NETKIT_IFACE_HINT"],
         "active_probe": os.environ["NETKIT_ACTIVE"] == "1",
