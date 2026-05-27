@@ -228,6 +228,11 @@ default_if = ifs.get("default_interface","")
 default_gw = ifs.get("default_gateway","")
 out.append(f"- **Active interface:** {bt}{default_if}{bt} → gateway {bt}{default_gw}{bt}")
 out.append(f"- **Hosts visible on LAN:** {hosts.get('count', 0)}")
+# Surface arp-scan degradation explicitly so the user notices vendor data
+# came from the OUI cache only (not from arp-scan's own vendor DB).
+arp = hosts.get("arp_scan") or {}
+if arp.get("requested") and not arp.get("ran"):
+    out.append(f"- **arp-scan:** requested but **did NOT run** ({arp.get('reason','?')}). Vendor enrichment came from the OUI cache only.")
 if q.get("targets"):
     gw = q["targets"][0] if q["targets"] else None
     if gw:
@@ -370,6 +375,9 @@ if "diagnostics" in failed:
     print("GitHub HTTPS   : UNKNOWN (diagnostics module failed)")
 else:
     print(f"GitHub HTTPS   : {'OK' if d.get('github_https',{}).get('ok') else 'FAIL'}")
+arp = (h.get("arp_scan") or {})
+if arp.get("requested") and not arp.get("ran"):
+    print(f"arp-scan       : SKIPPED ({arp.get('reason','?')}) — vendors from OUI cache only")
 if errors:
     print()
     print("Module failures:")

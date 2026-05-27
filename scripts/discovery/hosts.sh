@@ -92,19 +92,30 @@ PY
   arp -an 2>/dev/null > "$ARP_TMP" || true
 fi
 
-# Step 3: arp-scan if requested
+# Step 3: arp-scan if requested. Track exact run status so downstream tools
+# (reports, agents) can detect a silent fallback to passive ARP-only.
+ARPSCAN_RAN=0
+ARPSCAN_REASON=""
 if (( USE_ARPSCAN )); then
   if ! has_cmd arp-scan; then
     log_warn "arp-scan not installed; skipping (brew install arp-scan)"
+    ARPSCAN_REASON="not_installed"
   else
     log_info "Running arp-scan (requires sudo)..."
-    if sudo -n arp-scan --interface="$IFACE" --localnet 2>/dev/null > "$ARPSCAN_TMP"; then :
+    if sudo -n arp-scan --interface="$IFACE" --localnet 2>/dev/null > "$ARPSCAN_TMP"; then
+      ARPSCAN_RAN=1
     else
       log_warn "arp-scan needs passwordless sudo — skipping. Try: 'sudo -v' first."
       : > "$ARPSCAN_TMP"
+      ARPSCAN_REASON="sudo_timestamp_missing"
     fi
   fi
+else
+  ARPSCAN_REASON="not_requested"
 fi
+export NETKIT_ARPSCAN_REQUESTED="$USE_ARPSCAN"
+export NETKIT_ARPSCAN_RAN="$ARPSCAN_RAN"
+export NETKIT_ARPSCAN_REASON="$ARPSCAN_REASON"
 
 # Best-effort mDNS warmup (fills ARP entries for AppleTV, printers, etc.).
 # macOS does not ship GNU `timeout`; prefer gtimeout if installed, else
@@ -265,6 +276,11 @@ result = {
     "count": len(rows),
     "hosts": rows,
     "filtered_count": len(filtered_out),
+    "arp_scan": {
+        "requested": os.environ.get("NETKIT_ARPSCAN_REQUESTED", "0") == "1",
+        "ran":       os.environ.get("NETKIT_ARPSCAN_RAN", "0") == "1",
+        "reason":    os.environ.get("NETKIT_ARPSCAN_REASON", ""),
+    },
 }
 
 fmt = os.environ["NETKIT_FMT"]

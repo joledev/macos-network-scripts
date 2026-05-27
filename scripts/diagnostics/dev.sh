@@ -58,23 +58,43 @@ result["github_https"] = {
 }
 
 # ---- IPv6 connectivity ----
-# Check whether the host has any global IPv6 address and whether a default
-# IPv6 route exists. Then ping6 a well-known IPv6 host to confirm reachability.
+# Classify every non-loopback IPv6 address into global / ULA / link-local,
+# then check default route + ping6. Earlier versions lumped the Tailscale
+# ULA (fd7a:115c:...) into "global_addresses" which was semantically wrong.
+import ipaddress as _ipa
+
 ipv6 = {
     "has_global_address": False,
-    "global_addresses": [],
+    "global_addresses":     [],   # public unicast (2000::/3 minus reserved)
+    "ula_addresses":        [],   # unique local (fc00::/7) — Tailscale, mesh
+    "link_local_addresses": [],   # fe80::/10 — auto-configured per link
     "default_route": "",
     "default_iface": "",
-    "ping6_target": "2606:4700:4700::1111",   # Cloudflare DNS over IPv6
+    "ping6_target": "2606:4700:4700::1111",
     "ping6_ok": False,
     "ping6_avg_ms": None,
     "ping6_loss_pct": None,
 }
-_, v6_addrs, _ = sh("ifconfig | awk '/inet6 / && $2 !~ /^fe80/ && $2 != \"::1\" {print $2}'", 3)
-addrs = [a.strip() for a in (v6_addrs or "").splitlines() if a.strip()]
-if addrs:
-    ipv6["has_global_address"] = True
-    ipv6["global_addresses"] = addrs[:6]   # cap noise
+_, v6_all, _ = sh("ifconfig | awk '/inet6 / && $2 != \"::1\" {print $2}'", 3)
+for raw in (v6_all or "").splitlines():
+    s = raw.strip().split("%", 1)[0]  # strip "%enX" zone-id from link-local
+    if not s:
+        continue
+    try:
+        addr = _ipa.IPv6Address(s)
+    except ValueError:
+        continue
+    if addr.is_link_local:
+        ipv6["link_local_addresses"].append(str(addr))
+    elif addr.is_private and not addr.is_link_local:
+        # is_private covers ULA (fc00::/7) and other private ranges.
+        ipv6["ula_addresses"].append(str(addr))
+    elif addr.is_global:
+        ipv6["global_addresses"].append(str(addr))
+ipv6["has_global_address"] = bool(ipv6["global_addresses"])
+# Cap noise — keep first 6 of each list.
+for k in ("global_addresses", "ula_addresses", "link_local_addresses"):
+    ipv6[k] = ipv6[k][:6]
 _, route6, _ = sh("route -n get -inet6 default 2>/dev/null", 3)
 for ln in (route6 or "").splitlines():
     s = ln.strip()
