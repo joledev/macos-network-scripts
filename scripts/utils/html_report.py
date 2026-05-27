@@ -159,13 +159,27 @@ def _esc(s: Any) -> str:
 def _badge(text: str, kind: str = "ok") -> str:
     return f'<span class="badge {_esc(kind)}">{_esc(text)}</span>'
 
+class Raw:
+    """Wrap a string so `_table` won't HTML-escape it. Used for cells that
+    already contain trusted HTML (badges, <code> wrappers built locally)."""
+    __slots__ = ("html",)
+    def __init__(self, html: str): self.html = html
+    def __str__(self) -> str: return self.html
+
+
+def _cell(value: Any) -> str:
+    if isinstance(value, Raw):
+        return value.html
+    return _esc(value)
+
+
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
     if not rows:
         return '<p class="mono" style="color:var(--muted)">(no data)</p>'
     th = "".join(f"<th>{_esc(h)}</th>" for h in headers)
     body = []
     for r in rows:
-        cells = "".join(f"<td>{_esc(c)}</td>" for c in r)
+        cells = "".join(f"<td>{_cell(c)}</td>" for c in r)
         body.append(f"<tr>{cells}</tr>")
     return f'<table><thead><tr>{th}</tr></thead><tbody>{"".join(body)}</tbody></table>'
 
@@ -255,17 +269,17 @@ def render(report: dict, *, brand: str = "Network Diagnostic Report") -> str:
     q_rows = []
     for t in targets:
         loss = t.get("loss_pct", 0)
-        loss_badge = (_badge(_pct(loss), "ok") if loss == 0
-                      else _badge(_pct(loss), "warn") if loss < 5
-                      else _badge(_pct(loss), "bad"))
+        loss_badge = Raw(_badge(_pct(loss), "ok") if loss == 0
+                         else _badge(_pct(loss), "warn") if loss < 5
+                         else _badge(_pct(loss), "bad"))
         q_rows.append([
             t.get("target", ""),
             t.get("sent", ""), t.get("received", ""),
             loss_badge,
-            f"{_esc(t.get('rtt_min_ms', '?'))}",
-            f"{_esc(t.get('rtt_avg_ms', '?'))}",
-            f"{_esc(t.get('rtt_max_ms', '?'))}",
-            f"{_esc(t.get('rtt_stddev_ms', '?'))}",
+            t.get("rtt_min_ms", "?"),
+            t.get("rtt_avg_ms", "?"),
+            t.get("rtt_max_ms", "?"),
+            t.get("rtt_stddev_ms", "?"),
         ])
     quality_html = _table(["target", "sent", "recv", "loss", "min ms", "avg ms", "max ms", "jitter ms"], q_rows)
 
