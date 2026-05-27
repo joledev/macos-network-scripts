@@ -16,7 +16,6 @@ FORMAT="text"
 LIMIT=10
 SHOW_ALL=0
 
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in

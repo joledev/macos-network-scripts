@@ -14,7 +14,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utils/common.sh"
 
 FORMAT="text"
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in
@@ -55,6 +54,9 @@ export NETKIT_FMT="$FORMAT" NETKIT_WITH_WDUTIL="$USE_WDUTIL"
 python3 - <<'PY'
 import json, os, re, subprocess, sys
 
+sys.path.insert(0, os.path.join(os.environ["NETKIT_ROOT"], "scripts/utils"))
+import wifi_parser
+
 fmt = os.environ["NETKIT_FMT"]
 use_wdutil = os.environ["NETKIT_WITH_WDUTIL"] == "1"
 
@@ -65,112 +67,11 @@ def sh(cmd, timeout=10):
     except Exception:
         return ""
 
-# ---- system_profiler ----
+# ---- system_profiler — parsing extracted to scripts/utils/wifi_parser.py ----
 sp = sh(["system_profiler", "SPAirPortDataType"])
+result = wifi_parser.parse(sp)
+result["wdutil_used"] = False
 
-result = {
-    "interface": "",
-    "mac": "",
-    "country_code": "",
-    "phy_modes": "",
-    "current": {
-        "ssid": "",
-        "phy_mode": "",
-        "channel": "",
-        "band": "",
-        "channel_width": "",
-        "security": "",
-        "signal_dbm": None,
-        "noise_dbm": None,
-        "tx_rate_mbps": None,
-    },
-    "nearby_aps": [],
-    "wdutil_used": False,
-}
-
-# Parse: hierarchical key:value plain text.
-def parse_channel(value: str, ap: dict) -> None:
-    ap["channel"] = value
-    m = re.match(r"(\d+)\s*\(([^,]+)(?:,\s*(\S+))?\)", value)
-    if m:
-        ap["band"] = m.group(2).strip()
-        if m.group(3):
-            ap["channel_width"] = m.group(3).strip()
-
-def apply_field(ap: dict, key: str, value: str) -> None:
-    if key == "PHY Mode":
-        ap["phy_mode"] = value
-    elif key == "Channel":
-        parse_channel(value, ap)
-    elif key == "Security":
-        ap["security"] = value
-    elif key == "Signal / Noise":
-        m = re.search(r"(-?\d+)\s*dBm\s*/\s*(-?\d+)\s*dBm", value)
-        if m:
-            ap["signal_dbm"] = int(m.group(1))
-            ap["noise_dbm"]  = int(m.group(2))
-    elif key == "Transmit Rate":
-        try:
-            ap["tx_rate_mbps"] = int(value)
-        except ValueError:
-            pass
-
-section = None             # "current" | "nearby" | None
-current_target = None      # the dict we're filling right now
-ssid_pattern = re.compile(r"^[^:]+:$")  # a bare SSID heading ends with ':'
-
-for line in sp.splitlines():
-    stripped = line.strip()
-    if not stripped:
-        continue
-    # Section switches.
-    if stripped == "Current Network Information:":
-        section = "current"
-        current_target = None
-        continue
-    if stripped == "Other Local Wi-Fi Networks:":
-        section = "nearby"
-        current_target = None
-        continue
-    # Always extract these top-level attrs no matter the section.
-    if stripped.startswith("MAC Address:"):
-        result["mac"] = stripped.split(":", 1)[1].strip()
-        continue
-    if stripped.startswith("Country Code:") and not result["country_code"]:
-        result["country_code"] = stripped.split(":", 1)[1].strip()
-        continue
-    if stripped.startswith("Supported PHY Modes:"):
-        result["phy_modes"] = stripped.split(":", 1)[1].strip()
-        continue
-    if re.match(r"^en\d+:$", stripped):
-        result["interface"] = stripped.rstrip(":")
-        continue
-    # Section-specific.
-    if section == "current":
-        if ":" in stripped and not ssid_pattern.match(stripped):
-            key, _, val = stripped.partition(":")
-            if current_target is None:
-                # We haven't seen the SSID heading yet — skip.
-                continue
-            apply_field(current_target, key.strip(), val.strip())
-        elif ssid_pattern.match(stripped):
-            result["current"]["ssid"] = stripped.rstrip(":")
-            current_target = result["current"]
-    elif section == "nearby":
-        if ssid_pattern.match(stripped):
-            ap = {"ssid": stripped.rstrip(":"),
-                  "phy_mode": "", "channel": "", "band": "",
-                  "channel_width": "", "security": ""}
-            result["nearby_aps"].append(ap)
-            current_target = ap
-        elif current_target is not None and ":" in stripped:
-            key, _, val = stripped.partition(":")
-            apply_field(current_target, key.strip(), val.strip())
-
-# Filter out interfaces (awdl0/llw0 etc.) that snuck into "nearby" because
-# they appear with a trailing colon in system_profiler.
-result["nearby_aps"] = [a for a in result["nearby_aps"]
-                        if a.get("channel") or a.get("security")]
 
 # ---- wdutil (optional, sudo) ----
 if use_wdutil:
@@ -194,16 +95,8 @@ if use_wdutil:
                 if m:
                     result["current"]["tx_rate_mbps"] = float(m.group(1))
 
-# Co-channel summary: how many of the nearby APs are on the same channel as
-# the current connection (a quick-and-dirty interference indicator).
-cur_ch = result["current"]["channel"]
-if cur_ch:
-    cur_n = re.match(r"(\d+)", cur_ch)
-    if cur_n:
-        cur_num = cur_n.group(1)
-        same = [a for a in result["nearby_aps"]
-                if re.match(r"^" + cur_num + r"\b", a.get("channel", ""))]
-        result["co_channel_count"] = len(same)
+# Co-channel summary (interference indicator).
+result["co_channel_count"] = wifi_parser.co_channel_count(result)
 
 if fmt == "json":
     print(json.dumps(result, indent=2))

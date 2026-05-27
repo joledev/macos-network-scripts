@@ -24,20 +24,25 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 FORMAT="text"
 HOSTS_CSV=""
 DURATION=3
+ACTIVE=0
+USER_AGENT="Mozilla/5.0 (compatible; netkit/0.2)"
 
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in
     --json) FORMAT="json"; shift ;;
     --md)   FORMAT="md"; shift ;;
     --text) FORMAT="text"; shift ;;
+    --active) ACTIVE=1; shift ;;
     --hosts)
       [[ -n "${2:-}" ]] || die_usage "--hosts requires a comma-separated IP list"
       HOSTS_CSV="$2"; shift 2 ;;
     --duration)
       [[ -n "${2:-}" ]] || die_usage "--duration requires seconds"
       DURATION="$2"; shift 2 ;;
+    --user-agent)
+      [[ -n "${2:-}" ]] || die_usage "--user-agent requires a value"
+      USER_AGENT="$2"; shift 2 ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     --dry-run) export NETKIT_DRY_RUN=1; shift ;;
@@ -50,6 +55,17 @@ done
 
 [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 30 )) \
   || die_usage "--duration must be 1..30"
+
+# Validate --hosts tokens if provided. Each must look like an IPv4 address.
+if [[ -n "$HOSTS_CSV" ]]; then
+  IFS=',' read -r -a _HOST_ARR <<< "$HOSTS_CSV"
+  for _h in "${_HOST_ARR[@]}"; do
+    _h="${_h// /}"
+    [[ -z "$_h" ]] && continue
+    [[ "$_h" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] \
+      || die_usage "--hosts contains invalid token: '${_h}' (expected IPv4)"
+  done
+fi
 
 guard_no_sudo
 
@@ -66,22 +82,42 @@ fi
 if dry_run; then
   log_dry "cameras would:"
   log_dry "  wsdiscovery: UDP multicast 239.255.255.250:3702 (${DURATION}s window)"
-  log_dry "  rtsp probe : TCP 554 DESCRIBE to each LAN host"
-  log_dry "  http probe : TCP 80/8000/8080 GET / to each LAN host"
-  log_dry "  hosts      : ${HOSTS_CSV:-(none in arp cache; pass --hosts)}"
+  if (( ACTIVE )); then
+    log_dry "  rtsp probe : TCP 554 DESCRIBE to each LAN host"
+    log_dry "  http probe : TCP 80/8000/8080/8443 GET / to each LAN host"
+    log_dry "  hosts      : ${HOSTS_CSV:-(none in arp cache; pass --hosts)}"
+  else
+    log_dry "  rtsp/http  : SKIPPED — pass --active to TCP-probe each host"
+  fi
   log_dry "no traffic sent."
   exit 0
 fi
 
+# RTSP + HTTP per-host probes are active traffic. Gate behind --active so
+# the contract matches the rest of the toolkit (README: "active probes
+# require opt-in"). WS-Discovery is a single UDP multicast probe and runs
+# unconditionally — it's how ONVIF was designed to be discovered.
+if (( ACTIVE )); then
+  # Count probable hosts so the prompt is meaningful.
+  HOSTS_FOR_GUARD="${HOSTS_CSV//,/ }"
+  HOST_COUNT=$(printf '%s\n' $HOSTS_FOR_GUARD | grep -c .)
+  if ! confirm "About to TCP-probe ${HOST_COUNT} host(s) on ports 554/80/8000/8080/8443. Proceed?"; then
+    die "Active camera probe declined."
+  fi
+fi
+
 export NETKIT_FMT="$FORMAT" NETKIT_HOSTS_CSV="$HOSTS_CSV" \
-       NETKIT_DURATION="$DURATION"
+       NETKIT_DURATION="$DURATION" NETKIT_ACTIVE="$ACTIVE" \
+       NETKIT_USER_AGENT="$USER_AGENT"
 
 python3 - <<'PY'
 import concurrent.futures, json, os, re, socket, sys, time, urllib.parse, uuid
 
-fmt   = os.environ["NETKIT_FMT"]
-hosts = [h for h in os.environ["NETKIT_HOSTS_CSV"].split(",") if h.strip()]
+fmt    = os.environ["NETKIT_FMT"]
+hosts  = [h for h in os.environ["NETKIT_HOSTS_CSV"].split(",") if h.strip()]
 duration = int(os.environ["NETKIT_DURATION"])
+active = os.environ["NETKIT_ACTIVE"] == "1"
+ua     = os.environ["NETKIT_USER_AGENT"]
 
 # ---- 1) WS-Discovery (ONVIF) probe ----
 WSD_ADDR = ("239.255.255.250", 3702)
@@ -128,7 +164,7 @@ def rtsp_probe(ip: str) -> dict:
     try:
         s = socket.create_connection((ip, 554), timeout=1.5)
         req = (f"DESCRIBE rtsp://{ip}/ RTSP/1.0\r\n"
-               f"CSeq: 1\r\nUser-Agent: netkit\r\n\r\n").encode()
+               f"CSeq: 1\r\nUser-Agent: {ua}\r\n\r\n").encode()
         s.send(req)
         s.settimeout(1.5)
         data = s.recv(2048).decode(errors="replace")
@@ -154,7 +190,7 @@ def http_probe(ip: str) -> dict:
     for port in HTTP_PORTS:
         try:
             s = socket.create_connection((ip, port), timeout=1.0)
-            req = (f"GET / HTTP/1.0\r\nHost: {ip}\r\nUser-Agent: netkit\r\n\r\n").encode()
+            req = (f"GET / HTTP/1.0\r\nHost: {ip}\r\nUser-Agent: {ua}\r\n\r\n").encode()
             s.send(req)
             s.settimeout(1.0)
             data = s.recv(2048).decode(errors="replace")
@@ -211,11 +247,11 @@ for resp in wsdiscovery():
     findings[ip]["onvif_xaddr"] = ", ".join(resp["xaddrs"])
     findings[ip]["vendor_hint"] = findings[ip].get("vendor_hint", "") or guess_vendor(" ".join(resp["xaddrs"]))
 
-# TCP probes per known host (in parallel)
+# TCP probes per known host (in parallel) — only when --active.
 def probe_host(ip: str) -> tuple[str, dict, dict]:
     return ip, rtsp_probe(ip), http_probe(ip)
 
-if hosts:
+if hosts and active:
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(hosts))) as ex:
         for ip, rtsp, http in ex.map(probe_host, hosts):
             if not rtsp and not http:

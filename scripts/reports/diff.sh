@@ -26,7 +26,6 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 FORMAT="text"
 ARGS=()
 
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in

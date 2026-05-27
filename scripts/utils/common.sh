@@ -52,6 +52,12 @@ dry_run() { [[ "${NETKIT_DRY_RUN:-0}" == "1" ]]; }
 
 die() { log_err "$*"; exit 1; }
 
+# die_usage: same as die but signals a CLI usage error (exit 2). Use this
+# for invalid flag values, missing required args, unknown flags — anything
+# the user could fix by re-typing the command. Scripts used to redeclare
+# this locally; centralized so the convention stays uniform.
+die_usage() { log_err "$*"; exit 2; }
+
 # ---- Tool detection ----
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 

@@ -15,7 +15,6 @@ COUNT=20
 IFACE=""
 TARGETS=""
 
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in

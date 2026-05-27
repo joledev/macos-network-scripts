@@ -22,8 +22,8 @@ DURATION=10
 UDP=0
 REVERSE=0
 LISTEN=0
+LISTEN_TIMEOUT=300   # seconds; server auto-exits after this
 
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in
@@ -39,6 +39,9 @@ while (( $# )); do
     --duration)
       [[ -n "${2:-}" ]] || die_usage "--duration requires seconds"
       DURATION="$2"; shift 2 ;;
+    --listen-timeout)
+      [[ -n "${2:-}" ]] || die_usage "--listen-timeout requires seconds"
+      LISTEN_TIMEOUT="$2"; shift 2 ;;
     --udp) UDP=1; shift ;;
     --reverse) REVERSE=1; shift ;;
     --listen) LISTEN=1; shift ;;
@@ -56,6 +59,8 @@ done
   || die_usage "--port must be 1..65535"
 [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 300 )) \
   || die_usage "--duration must be 1..300 seconds"
+[[ "$LISTEN_TIMEOUT" =~ ^[0-9]+$ ]] && (( LISTEN_TIMEOUT >= 10 && LISTEN_TIMEOUT <= 3600 )) \
+  || die_usage "--listen-timeout must be 10..3600 seconds"
 [[ -n "$SERVER" || $LISTEN -eq 1 ]] \
   || die_usage "either --server <host> or --listen is required"
 
@@ -65,8 +70,9 @@ require_cmd iperf3
 if dry_run; then
   log_dry "throughput would:"
   if (( LISTEN )); then
-    log_dry "  mode  : server (listen)"
-    log_dry "  cmd   : iperf3 -s -p $PORT"
+    log_dry "  mode    : server (listen, --one-off)"
+    log_dry "  cmd     : iperf3 -s -p $PORT --one-off"
+    log_dry "  watchdog: kill server after ${LISTEN_TIMEOUT}s if no client connects"
   else
     extra=""
     (( UDP ))     && extra="${extra} -u -b 0"
@@ -80,8 +86,23 @@ if dry_run; then
 fi
 
 if (( LISTEN )); then
-  log_info "Starting iperf3 server on :$PORT (Ctrl-C to stop)..."
-  exec iperf3 -s -p "$PORT"
+  log_info "iperf3 server on :$PORT (--one-off; auto-exit after ${LISTEN_TIMEOUT}s if no client)"
+  # --one-off makes iperf3 exit after the first client disconnects.
+  # The watchdog then kills the server even if no client ever connects.
+  iperf3 -s -p "$PORT" --one-off &
+  IPERF_PID=$!
+  (
+    sleep "$LISTEN_TIMEOUT"
+    if kill -0 "$IPERF_PID" 2>/dev/null; then
+      log_warn "iperf3 server hit ${LISTEN_TIMEOUT}s timeout with no client; terminating."
+      kill "$IPERF_PID" 2>/dev/null || true
+    fi
+  ) &
+  WATCHDOG_PID=$!
+  trap 'kill "$IPERF_PID" "$WATCHDOG_PID" 2>/dev/null || true' EXIT INT TERM
+  wait "$IPERF_PID" 2>/dev/null || true
+  kill "$WATCHDOG_PID" 2>/dev/null || true
+  exit 0
 fi
 
 log_info "Measuring throughput to $SERVER:$PORT for ${DURATION}s..."

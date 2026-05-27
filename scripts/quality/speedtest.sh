@@ -16,7 +16,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utils/common.sh"
 
 FORMAT="text"
-die_usage() { log_err "$*"; exit 2; }
 
 while (( $# )); do
   case "$1" in
