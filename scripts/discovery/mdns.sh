@@ -39,6 +39,7 @@ done
 [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 30 )) \
   || die_usage "--duration must be 1..30 (got: ${DURATION})"
 
+guard_no_sudo
 require_cmd dns-sd
 
 if dry_run; then

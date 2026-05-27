@@ -60,12 +60,22 @@ LOCAL_IP=$(iface_ipv4 "$IFACE" || echo "")
 HW_PORT=$(iface_hwport "$IFACE" || echo "")
 KIND=$(iface_kind "$IFACE" || echo other)
 
+# Build hosts.sh flag set up front so --dry-run can show the exact args
+# the real run would use. (Previously this happened after the dry-run
+# branch, so the plan always said "(passive)" regardless of --active /
+# --arpscan / --interface.)
+HOSTS_FLAGS=("--json")
+(( ACTIVE )) && HOSTS_FLAGS+=("--active")
+(( USE_ARPSCAN )) && HOSTS_FLAGS+=("--arpscan")
+HOSTS_FLAGS+=("--interface" "$IFACE")
+[[ -n "$SUBNET" ]] && HOSTS_FLAGS+=("--subnet" "$SUBNET")
+
 if dry_run; then
   log_dry "topology would:"
   log_dry "  interface  : $IFACE ($KIND, $LOCAL_IP)"
   log_dry "  gateway    : $GATEWAY"
   log_dry "  subnet     : $SUBNET"
-  log_dry "  hosts      : call hosts.sh ${HOSTS_FLAGS[*]:- (passive)}"
+  log_dry "  hosts      : call hosts.sh ${HOSTS_FLAGS[*]}"
   if (( DO_TRACE )); then
     if has_cmd mtr && [[ "${NETKIT_ALLOW_RAW:-0}" == "1" ]]; then
       log_dry "  traceroute : sudo -n mtr -r -c 10 -j $TRACE_TARGET   (with --allow-raw)"
@@ -151,12 +161,8 @@ if (( DO_TRACE )); then
   fi
 fi
 
-# Get hosts (passive ARP cache only by default)
-HOSTS_FLAGS=("--json")
-(( ACTIVE )) && HOSTS_FLAGS+=("--active")
-(( USE_ARPSCAN )) && HOSTS_FLAGS+=("--arpscan")
-HOSTS_FLAGS+=("--interface" "$IFACE")
-[[ -n "$SUBNET" ]] && HOSTS_FLAGS+=("--subnet" "$SUBNET")
+# HOSTS_FLAGS was built earlier (above the dry-run branch) so that --dry-run
+# could show the same args. Just invoke hosts.sh now.
 "${SCRIPT_DIR}/../discovery/hosts.sh" "${HOSTS_FLAGS[@]}" > "$HOSTS_FILE" 2>/dev/null || echo '{"hosts":[]}' > "$HOSTS_FILE"
 
 export NETKIT_IFACE="$IFACE"
