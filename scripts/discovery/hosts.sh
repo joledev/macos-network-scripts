@@ -125,12 +125,17 @@ fi
 export NETKIT_ROOT NETKIT_FMT="$FORMAT" NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET"
 export NETKIT_ARP_FILE="$ARP_TMP" NETKIT_ARPSCAN_FILE="$ARPSCAN_TMP"
 NETKIT_LOCAL_IP="$(iface_ipv4 "$IFACE" 2>/dev/null || echo "")"
-export NETKIT_LOCAL_IP
+# Comma-separated list of every IPv4 the Mac has on any interface — used by
+# the host filter so Wi-Fi (en0) and Ethernet (en7) don't both list each
+# other as "external hosts" on a shared LAN.
+NETKIT_LOCAL_IPS="$(all_local_ipv4 | paste -sd, -)"
+export NETKIT_LOCAL_IP NETKIT_LOCAL_IPS
 
 python3 - <<'PY'
 import concurrent.futures, ipaddress, json, os, re, socket, sys
 sys.path.insert(0, os.path.join(os.environ["NETKIT_ROOT"], "scripts/utils"))
 import oui
+import known_hosts
 
 arp_text = ""
 try:
@@ -149,6 +154,10 @@ except OSError:
 # Build the set of real-host IPs in the subnet for fast membership tests.
 subnet_cidr = os.environ["NETKIT_SUBNET"]
 local_ip    = os.environ.get("NETKIT_LOCAL_IP", "")
+local_ips_csv = os.environ.get("NETKIT_LOCAL_IPS", "")
+local_ips   = {ip.strip() for ip in local_ips_csv.split(",") if ip.strip()}
+if local_ip:
+    local_ips.add(local_ip)
 
 try:
     net = ipaddress.IPv4Network(subnet_cidr, strict=False)
@@ -179,7 +188,7 @@ def keep(ip_str: str) -> tuple[bool, str]:
         return False, "network_address"
     if ip_str == bcast:
         return False, "broadcast"
-    if ip_str == local_ip:
+    if ip_str in local_ips:
         return False, "self"
     return True, ""
 
@@ -236,6 +245,15 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=32) as ex:
         if name:
             hosts[ip]["name"] = name
 
+# Known-hosts enrichment — overlay friendly names + roles from local config.
+for rec in hosts.values():
+    hit = known_hosts.lookup(ip=rec.get("ip", ""), mac=rec.get("mac", ""))
+    if hit:
+        if hit.get("name"):
+            rec["known_name"] = hit["name"]
+        if hit.get("role"):
+            rec["role"] = hit["role"]
+
 rows = sorted(hosts.values(),
               key=lambda r: tuple(int(x) for x in r["ip"].split(".")))
 
@@ -243,6 +261,7 @@ result = {
     "interface": os.environ["NETKIT_IFACE"],
     "subnet": subnet_cidr,
     "local_ip": local_ip,
+    "local_ips": sorted(local_ips),
     "count": len(rows),
     "hosts": rows,
     "filtered_count": len(filtered_out),
@@ -264,8 +283,10 @@ elif fmt == "md":
 else:
     print(f"Interface: {result['interface']}   Subnet: {result['subnet']}   Hosts: {result['count']}")
     print()
-    print(f"{'IP':<16} {'MAC':<19} {'Vendor':<18} {'Name':<32} {'Source'}")
-    print("-" * 100)
+    print(f"{'IP':<16} {'MAC':<19} {'Vendor':<18} {'Known/rDNS':<28} {'Role':<14} {'Src'}")
+    print("-" * 110)
     for r in rows:
-        print(f"{r['ip']:<16} {r['mac']:<19} {(r['vendor'] or '')[:18]:<18} {(r['name'] or '')[:32]:<32} {r['source']}")
+        name_field = r.get("known_name") or r.get("name") or ""
+        role = r.get("role", "")
+        print(f"{r['ip']:<16} {r['mac']:<19} {(r['vendor'] or '')[:18]:<18} {name_field[:28]:<28} {role[:14]:<14} {r['source']}")
 PY

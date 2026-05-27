@@ -9,6 +9,7 @@
 #   quality               Latency / jitter / packet loss / DNS timing
 #   diagnose              Dev-workflow connectivity (GitHub, DNS, Docker, VPN)
 #   inventory             OS, hardware and installed tools
+#   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
 #   report [--active]     Generate combined md/json/mermaid report under output/
 #
 # Global flags (forwarded to subcommands when applicable):
@@ -76,6 +77,13 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/diagnostics/dev.sh" "$@" ;;
   inventory|inv)
     "${NETKIT_ROOT}/scripts/inventory/system.sh" "$@" ;;
+  oui)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      fetch) "${NETKIT_ROOT}/scripts/utils/oui_fetch.sh" "$@" ;;
+      *) log_err "Usage: netkit oui fetch [--force]"; exit 2 ;;
+    esac
+    ;;
   report|all)
     "${NETKIT_ROOT}/scripts/reports/generate.sh" "$@" ;;
   *)

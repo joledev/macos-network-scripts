@@ -124,13 +124,31 @@ Key environment variables:
 - [`docs/workflows.md`](docs/workflows.md) — recommended LLM workflows
 - [`docs/command-safety.md`](docs/command-safety.md) — allowlist / denylist of commands
 
+## Known hosts (friendly names)
+
+Drop a `configs/known-hosts.toml` (gitignored) or `~/.config/netkit/known-hosts.toml`
+to map IPs/MACs to friendly names + roles. Reports overlay those onto every
+host so `192.168.1.67` shows up as `desktop-jole / workstation` instead of
+just an IP.
+
+See [`configs/known-hosts.example.toml`](configs/known-hosts.example.toml).
+
+## Vendor enrichment (IEEE OUI)
+
+`netkit oui fetch` downloads the IEEE OUI registry (~4 MB) into
+`~/.cache/netkit/oui.txt`. After that, vendors resolve from ~40k prefixes
+instead of the ~50 built into the script. Auto-refreshes after 30 days.
+
 ## Roadmap
 
 - [ ] SQLite history of reports (compare deltas over time)
+- [ ] `netkit diff REPORT_A REPORT_B` (delta between two reports)
 - [ ] iperf3 wrapper for throughput measurement
 - [ ] Wi-Fi diagnostic via `wdutil info` (sudo required, opt-in)
+- [ ] mDNS service browser (`dns-sd -B`) for richer hostname enrichment
 - [ ] Optional Obsidian export (writes to a vault path)
 - [ ] Linux support for the same `bin/netkit` surface
+- [ ] Redaction modes (`--redact`, `--shareable`) for sharing reports publicly
 
 ## Contributing
 

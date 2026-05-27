@@ -82,6 +82,8 @@ if (( ACTIVE )); then
 fi
 if (( USE_ARPSCAN )); then
   HOSTS_FLAGS+=("--arpscan")
+  TOPO_FLAGS+=("--arpscan")
+  TOPO_MMD_FLAGS+=("--arpscan")
 fi
 if (( INCLUDE_TRACE )); then
   TOPO_FLAGS+=("--traceroute")

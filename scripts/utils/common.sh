@@ -91,6 +91,16 @@ iface_ipv4() {
   ifconfig "$iface" 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}'
 }
 
+# Returns every IPv4 address assigned to any local interface, one per line.
+# Used by host discovery to filter "self" entries from the ARP cache —
+# a Mac with both Wi-Fi and Ethernet active has two IPs on the same LAN.
+all_local_ipv4() {
+  ifconfig 2>/dev/null | awk '
+    /^[a-z]/ { iface = $1; sub(/:$/, "", iface) }
+    /inet / && $2 != "127.0.0.1" { print $2 }
+  '
+}
+
 # Returns the IPv4 netmask of the given interface in dotted form (e.g. 255.255.255.0).
 iface_netmask() {
   local iface="$1"

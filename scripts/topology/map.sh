@@ -19,6 +19,7 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 FORMAT="text"
 ACTIVE=0
 DO_TRACE=0
+USE_ARPSCAN=0
 TRACE_TARGET="1.1.1.1"
 IFACE=""
 SUBNET=""
@@ -30,6 +31,7 @@ while (( $# )); do
     --mermaid) FORMAT="mermaid"; shift ;;
     --text) FORMAT="text"; shift ;;
     --active) ACTIVE=1; shift ;;
+    --arpscan) USE_ARPSCAN=1; shift ;;
     --traceroute) DO_TRACE=1; shift ;;
     --target) TRACE_TARGET="$2"; shift 2 ;;
     --interface) IFACE="$2"; shift 2 ;;
@@ -114,6 +116,7 @@ fi
 # Get hosts (passive ARP cache only by default)
 HOSTS_FLAGS=("--json")
 (( ACTIVE )) && HOSTS_FLAGS+=("--active")
+(( USE_ARPSCAN )) && HOSTS_FLAGS+=("--arpscan")
 HOSTS_FLAGS+=("--interface" "$IFACE")
 [[ -n "$SUBNET" ]] && HOSTS_FLAGS+=("--subnet" "$SUBNET")
 "${SCRIPT_DIR}/../discovery/hosts.sh" "${HOSTS_FLAGS[@]}" > "$HOSTS_FILE" 2>/dev/null || echo '{"hosts":[]}' > "$HOSTS_FILE"

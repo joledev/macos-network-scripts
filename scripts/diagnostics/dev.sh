@@ -29,7 +29,10 @@ while (( $# )); do
   esac
 done
 
-python3 - <<PY
+export NETKIT_FMT="$FORMAT" NETKIT_SSH_TARGETS_ARG="$SSH_TARGETS"
+export NETKIT_DNS_DOMAIN
+
+python3 - <<'PY'
 import json, os, socket, ssl, subprocess, sys, time
 
 def sh(cmd, timeout=5):
@@ -54,8 +57,52 @@ result["github_https"] = {
     "error": err.strip() or None,
 }
 
+# ---- IPv6 connectivity ----
+# Check whether the host has any global IPv6 address and whether a default
+# IPv6 route exists. Then ping6 a well-known IPv6 host to confirm reachability.
+ipv6 = {
+    "has_global_address": False,
+    "global_addresses": [],
+    "default_route": "",
+    "default_iface": "",
+    "ping6_target": "2606:4700:4700::1111",   # Cloudflare DNS over IPv6
+    "ping6_ok": False,
+    "ping6_avg_ms": None,
+    "ping6_loss_pct": None,
+}
+_, v6_addrs, _ = sh("ifconfig | awk '/inet6 / && $2 !~ /^fe80/ && $2 != \"::1\" {print $2}'", 3)
+addrs = [a.strip() for a in (v6_addrs or "").splitlines() if a.strip()]
+if addrs:
+    ipv6["has_global_address"] = True
+    ipv6["global_addresses"] = addrs[:6]   # cap noise
+_, route6, _ = sh("route -n get -inet6 default 2>/dev/null", 3)
+for ln in (route6 or "").splitlines():
+    s = ln.strip()
+    if s.startswith("gateway:"):
+        ipv6["default_route"] = s.split(":",1)[1].strip()
+    elif s.startswith("interface:"):
+        ipv6["default_iface"] = s.split(":",1)[1].strip()
+if ipv6["has_global_address"]:
+    rc6, p6_out, _ = sh(f"ping6 -c 3 -i 0.3 -q {ipv6['ping6_target']} 2>&1", 6)
+    if rc6 == 0:
+        ipv6["ping6_ok"] = True
+        # macOS ping6 output mirrors ping: "round-trip min/avg/max/std-dev = a/b/c/d ms"
+        for ln in (p6_out or "").splitlines():
+            if "min/avg/max" in ln:
+                try:
+                    stats = ln.split("=",1)[1].strip().split()[0]
+                    ipv6["ping6_avg_ms"] = float(stats.split("/")[1])
+                except (IndexError, ValueError):
+                    pass
+            if "packet loss" in ln:
+                try:
+                    ipv6["ping6_loss_pct"] = float(ln.split("%")[0].split()[-1])
+                except (IndexError, ValueError):
+                    pass
+result["ipv6"] = ipv6
+
 # DNS resolution
-dns_targets = ["github.com", "${NETKIT_DNS_DOMAIN}", "cloudflare.com"]
+dns_targets = ["github.com", os.environ.get("NETKIT_DNS_DOMAIN", "github.com"), "cloudflare.com"]
 dns_results = []
 for d in dns_targets:
     try:
@@ -86,7 +133,7 @@ except Exception as e:
 
 # SSH (banner grab only) for each target
 ssh_results = []
-for tgt in [t.strip() for t in "${SSH_TARGETS}".split(",") if t.strip()]:
+for tgt in [t.strip() for t in os.environ.get("NETKIT_SSH_TARGETS_ARG","").split(",") if t.strip()]:
     if ":" in tgt:
         host, port = tgt.rsplit(":", 1); port = int(port)
     else:
@@ -135,19 +182,71 @@ else:
     rc2, _, _ = sh("command -v tailscale")
     result["tailscale"] = {"installed": rc2 == 0, "logged_in": False}
 
-# WireGuard / VPN tunnels (utun interfaces)
+# WireGuard / VPN tunnels (utun interfaces) with process attribution.
+# macOS doesn't expose "what process owns this utun" via a single command,
+# so we approximate: list processes that have a socket on the tunnel's IP
+# (lsof -i @ADDR) and any matching command names. Best-effort, no sudo.
 rc, out, _ = sh("ifconfig", 4)
 utuns = []
 current = None
 for line in out.splitlines():
     if line.startswith("utun"):
         current = line.split(":")[0]
-        utuns.append({"interface": current, "inet": None})
+        utuns.append({"interface": current, "inet": None, "owner_candidates": []})
     elif current and "inet " in line and "127.0.0.1" not in line:
         parts = line.strip().split()
         if "inet" in parts:
             utuns[-1]["inet"] = parts[parts.index("inet")+1]
+
+# Attribution: well-known VPN clients we hint based on their daemon names.
+known_owners = {
+    "tailscaled":     "Tailscale",
+    "TailscaleHelpe": "Tailscale (GUI helper)",
+    "wireguard-go":   "WireGuard",
+    "wg-quick":       "WireGuard",
+    "openvpn":        "OpenVPN",
+    "openconnect":    "OpenConnect / Cisco AnyConnect",
+    "Tunnelblick":    "Tunnelblick (OpenVPN GUI)",
+    "rustdesk":       "RustDesk",
+    "WARP":           "Cloudflare WARP",
+    "warp-svc":       "Cloudflare WARP",
+    "nordvpn":        "NordVPN",
+    "ExpressVPN":     "ExpressVPN",
+    "mullvad":        "Mullvad",
+    "ProtonVPN":      "ProtonVPN",
+    "OrbStack":       "OrbStack",
+    "com.docker":     "Docker Desktop",
+    "vpnd":           "macOS built-in VPN",
+}
+
+# Get the full process list once so we can match running daemons even for
+# tunnels we can't directly attribute via lsof.
+_, ps_out, _ = sh("ps -axo comm=", 3)
+running_procs = ps_out.splitlines() if ps_out else []
+
+for u in utuns:
+    if not u.get("inet"):
+        u["socket_owners"] = []
+        continue
+    # lsof -i @<addr>  → processes with sockets bound to that tunnel's IP.
+    # This is concrete attribution: only processes actually using the tunnel.
+    _, lsof_out, _ = sh(f"lsof -nP -i @{u['inet']} 2>/dev/null", 4)
+    procs = set()
+    for line in (lsof_out or "").splitlines()[1:]:
+        parts = line.split()
+        if parts:
+            procs.add(parts[0])
+    u["socket_owners"] = sorted(procs)
+
+# Separate top-level: which VPN daemons are running anywhere on the system.
+# Useful context, but not attributed to a specific tunnel.
+vpn_daemons = []
+for pat, label in known_owners.items():
+    if any(pat.lower() in p.lower() for p in running_procs):
+        vpn_daemons.append({"daemon": pat, "label": label})
+
 result["vpn_tunnels"] = utuns
+result["vpn_daemons_running"] = vpn_daemons
 
 # Listening ports (TCP/UDP). lsof is the cleanest on macOS.
 ports = []
@@ -166,7 +265,7 @@ if rc == 0:
         ports.append({"proto": "tcp", "port": port, "command": cmd, "pid": pid, "addr": addr})
 result["listening_ports"] = ports[:80]
 
-fmt = "${FORMAT}"
+fmt = os.environ.get("NETKIT_FMT", "text")
 if fmt == "json":
     print(json.dumps(result, indent=2))
 elif fmt == "md":

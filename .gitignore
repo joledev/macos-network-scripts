@@ -37,3 +37,4 @@ venv/
 dist/
 build/
 *.log
+configs/known-hosts.toml

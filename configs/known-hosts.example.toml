@@ -1,0 +1,19 @@
+# netkit known-hosts — friendly names for IPs and MACs you recognize.
+# Copy to known-hosts.toml (gitignored) to use locally, or place at
+# ~/.config/netkit/known-hosts.toml for a user-global mapping.
+#
+# Lookups try IP first, then MAC. Both keys are normalized (lowercase MAC,
+# padded octets). Anything you don't list shows up with its raw vendor name.
+
+[hosts]
+# IP-based entries — useful when devices have a static/DHCP-reserved IP.
+"192.168.1.67"  = { name = "desktop-jole",  role = "workstation" }
+"192.168.1.98"  = { name = "phoneserver",   role = "ci-hub" }
+"192.168.1.96"  = { name = "mediapc",       role = "media-center" }
+"192.168.1.115" = { name = "lab-thinkpad",  role = "homelab-node" }
+"192.168.1.254" = { name = "router",        role = "gateway" }
+
+# MAC-based entries — survive IP changes (renewed DHCP leases).
+# Lowercase the MAC; zero-pad each octet.
+# "f0:2f:74:88:01:70" = { name = "desktop-jole", role = "workstation" }
+# "10:24:07:4d:fc:9c" = { name = "router-huawei", role = "gateway" }
