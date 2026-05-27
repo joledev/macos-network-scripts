@@ -19,11 +19,13 @@ INCLUDE_TRACE=0
 IFACE=""
 STDOUT_FMT=""
 ALLOW_PARTIAL=0
+USE_ARPSCAN=0
 
 while (( $# )); do
   case "$1" in
     --active) ACTIVE=1; shift ;;
     --include-traceroute) INCLUDE_TRACE=1; shift ;;
+    --arpscan) USE_ARPSCAN=1; shift ;;
     --interface) IFACE="$2"; shift 2 ;;
     --json) STDOUT_FMT="json"; shift ;;
     --md)   STDOUT_FMT="md"; shift ;;
@@ -34,6 +36,11 @@ while (( $# )); do
     *) die "Unknown flag: $1" ;;
   esac
 done
+
+# --arpscan implies --allow-raw OR strict mode will block it. Tell the user.
+if (( USE_ARPSCAN )) && [[ "${NETKIT_ALLOW_RAW:-0}" != "1" ]] && [[ "${NETKIT_STRICT:-1}" == "1" ]]; then
+  die "--arpscan requires --allow-raw (or NETKIT_ALLOW_RAW=1) because arp-scan needs sudo."
+fi
 
 ensure_output_dir
 TS=$(timestamp)
@@ -72,6 +79,9 @@ if (( ACTIVE )); then
   HOSTS_FLAGS+=("--active")
   TOPO_FLAGS+=("--active")
   TOPO_MMD_FLAGS+=("--active")
+fi
+if (( USE_ARPSCAN )); then
+  HOSTS_FLAGS+=("--arpscan")
 fi
 if (( INCLUDE_TRACE )); then
   TOPO_FLAGS+=("--traceroute")

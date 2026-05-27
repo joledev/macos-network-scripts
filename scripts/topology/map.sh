@@ -60,13 +60,11 @@ HOSTS_FILE="$(mktemp -t netkit-hosts.XXXXXX)"
 trap 'rm -f "$TRACE_FILE" "$HOSTS_FILE"' EXIT
 
 echo "[]" > "$TRACE_FILE"
-if (( DO_TRACE )); then
-  if has_cmd mtr; then
-    log_info "Running mtr to $TRACE_TARGET (10 cycles)..."
-    mtr -r -c 10 -j "$TRACE_TARGET" 2>/dev/null > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
-  else
-    log_info "Running traceroute to $TRACE_TARGET..."
-    traceroute -n -w 1 -q 1 "$TRACE_TARGET" 2>/dev/null | python3 -c '
+
+# Run traceroute via plain `traceroute` (no root needed on macOS for UDP probes).
+# Used as the default and as fallback when mtr fails or returns empty.
+run_traceroute_plain() {
+  traceroute -n -w 1 -q 1 "$TRACE_TARGET" 2>/dev/null | python3 -c '
 import json, re, sys
 hops = []
 for line in sys.stdin.read().splitlines():
@@ -78,7 +76,38 @@ for line in sys.stdin.read().splitlines():
     rtt_m = re.search(r"([\d.]+) ms", line)
     hops.append({"hop": hop, "host": ip, "rtt_ms": float(rtt_m.group(1)) if rtt_m else None})
 print(json.dumps(hops))
-' > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
+'
+}
+
+# Check whether mtr can actually capture data. mtr on macOS needs root for
+# raw ICMP and silently produces an empty report otherwise. We treat
+# "empty hubs list" as a failure and fall back to plain traceroute.
+mtr_usable() {
+  # If we don't have a valid sudo timestamp, skip mtr entirely unless the
+  # caller is already root (rare).
+  if [[ "$(id -u)" != "0" ]] && ! sudo -n true 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+if (( DO_TRACE )); then
+  if has_cmd mtr && mtr_usable; then
+    log_info "Running mtr to $TRACE_TARGET (10 cycles, sudo)..."
+    sudo -n mtr -r -c 10 -j "$TRACE_TARGET" 2>/dev/null > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
+    # If mtr produced an empty hubs list anyway, fall back.
+    if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d and d.get("report",{}).get("hubs") else 1)' "$TRACE_FILE" 2>/dev/null; then
+      :
+    else
+      log_warn "mtr returned no hops; falling back to traceroute."
+      run_traceroute_plain > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
+    fi
+  else
+    if has_cmd mtr; then
+      log_dim "mtr present but needs sudo; using traceroute (no root)."
+    fi
+    log_info "Running traceroute to $TRACE_TARGET..."
+    run_traceroute_plain > "$TRACE_FILE" || echo "[]" > "$TRACE_FILE"
   fi
 fi
 
