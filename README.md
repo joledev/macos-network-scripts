@@ -83,7 +83,7 @@ Reports land under `output/`:
 ./bin/netkit speedtest             ISP throughput (Ookla or cloudflare-speed-cli)
 ./bin/netkit throughput --server H LAN throughput via iperf3
 ./bin/netkit diagnose              Dev workflow connectivity
-./bin/netkit wifi [--scan]         RSSI, channel, security + nearby APs
+./bin/netkit wifi [--survey]       RSSI, channel, security + nearby APs; --survey = passive RF site survey
 ./bin/netkit cameras               IP camera discovery (ONVIF + RTSP)
 ./bin/netkit starlink              Starlink dish status (needs grpcurl)
 ./bin/netkit cert-check --host H   TLS audit for arbitrary host:port

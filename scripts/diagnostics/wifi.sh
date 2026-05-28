@@ -6,7 +6,9 @@
 #   - system_profiler SPAirPortDataType   (no sudo, default)
 #   - wdutil info                          (richer, needs --allow-raw + sudo)
 #
-# Usage: wifi.sh [--scan] [--json|--md|--text]
+# Usage: wifi.sh [--survey] [--json|--md|--text]
+#   --survey   passive RF site survey of ALL nearby APs: per-band / per-channel
+#              / per-security tallies + least-congested 2.4GHz channel
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,12 +16,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../utils/common.sh"
 
 FORMAT="text"
+SURVEY=0
 
 while (( $# )); do
   case "$1" in
     --json) FORMAT="json"; shift ;;
     --md)   FORMAT="md"; shift ;;
     --text) FORMAT="text"; shift ;;
+    --survey) SURVEY=1; shift ;;
     --yes) export NETKIT_YES=1; shift ;;
     --allow-raw) export NETKIT_ALLOW_RAW=1; shift ;;
     --dry-run) export NETKIT_DRY_RUN=1; shift ;;
@@ -49,7 +53,7 @@ if dry_run; then
   exit 0
 fi
 
-export NETKIT_FMT="$FORMAT" NETKIT_WITH_WDUTIL="$USE_WDUTIL"
+export NETKIT_FMT="$FORMAT" NETKIT_WITH_WDUTIL="$USE_WDUTIL" NETKIT_SURVEY="$SURVEY"
 
 python3 - <<'PY'
 import json, os, re, subprocess, sys
@@ -59,6 +63,7 @@ import wifi_parser
 
 fmt = os.environ["NETKIT_FMT"]
 use_wdutil = os.environ["NETKIT_WITH_WDUTIL"] == "1"
+want_survey = os.environ.get("NETKIT_SURVEY") == "1"
 
 def sh(cmd, timeout=10):
     try:
@@ -97,6 +102,8 @@ if use_wdutil:
 
 # Co-channel summary (interference indicator).
 result["co_channel_count"] = wifi_parser.co_channel_count(result)
+# Passive site survey (always computed; surfaced in text/md only with --survey).
+result["survey"] = wifi_parser.survey(result)
 
 if fmt == "json":
     print(json.dumps(result, indent=2))
@@ -138,4 +145,22 @@ else:
         print("  " + "-" * 100)
         for a in result["nearby_aps"]:
             print(f"  {a['ssid'][:32]:<32} {a['phy_mode'][:22]:<22} {a['channel'][:22]:<22} {a['security']}")
+
+if want_survey and fmt in ("text", "md"):
+    s = result["survey"]
+    print()
+    print("## Site survey (passive)\n" if fmt == "md" else "Site survey (passive RF):")
+    print(f"  APs seen     : {s['ap_count']}")
+    print(f"  Bands        : " + ", ".join(f"{k}={v}" for k, v in s["bands"].items()))
+    print(f"  Channels     : " + ", ".join(f"ch{k}:{v}" for k, v in s["channels"].items()))
+    print(f"  Security     : " + ", ".join(f"{k}={v}" for k, v in s["security"].items()))
+    if s.get("recommend_2ghz_channel"):
+        print(f"  Best 2.4GHz  : channel {s['recommend_2ghz_channel']} (least crowded of 1/6/11)")
+    if s.get("weak_security_ssids"):
+        print(f"  Weak security: {', '.join(s['weak_security_ssids'])}")
+    if s.get("by_signal"):
+        print("  Strongest APs:")
+        for a in s["by_signal"][:10]:
+            print(f"    {a.get('signal_dbm')} dBm  ch {a.get('channel','')}  "
+                  f"{a.get('security','')}  {a.get('ssid','')}")
 PY

@@ -130,6 +130,67 @@ def parse(text: str) -> dict[str, Any]:
     return result
 
 
+def _chan_num(ap: dict) -> int | None:
+    m = re.match(r"(\d+)", ap.get("channel", "") or "")
+    return int(m.group(1)) if m else None
+
+
+def _norm_security(s: str) -> str:
+    u = (s or "").upper()
+    if "WPA3" in u:
+        return "WPA3"
+    if "WPA2" in u:
+        return "WPA2"
+    if "WPA" in u:
+        return "WPA"
+    if "WEP" in u:
+        return "WEP"
+    if not u or "NONE" in u or "OPEN" in u:
+        return "Open"
+    return s.strip()
+
+
+def survey(result: dict[str, Any]) -> dict[str, Any]:
+    """Passive RF site survey from the parsed scan: per-band / per-channel /
+    per-security tallies, APs by signal, weak-security flags, and a least-
+    congested 2.4 GHz channel suggestion. Pure analysis of beacon data."""
+    aps = list(result.get("nearby_aps", []))
+    cur = result.get("current") or {}
+    if cur.get("ssid"):
+        aps = aps + [{**cur, "_self": True}]
+
+    bands: dict[str, int] = {}
+    channels: dict[int, int] = {}
+    security: dict[str, int] = {}
+    for a in aps:
+        bands[a.get("band") or "?"] = bands.get(a.get("band") or "?", 0) + 1
+        n = _chan_num(a)
+        if n is not None:
+            channels[n] = channels.get(n, 0) + 1
+        sec = _norm_security(a.get("security", ""))
+        security[sec] = security.get(sec, 0) + 1
+
+    g24 = {c: channels.get(c, 0) for c in (1, 6, 11)}
+    rec24 = min(g24, key=lambda c: g24[c]) if any(_chan_num(a) in (1, 6, 11) for a in aps) else None
+
+    by_signal = sorted(
+        [a for a in aps if a.get("signal_dbm") is not None],
+        key=lambda a: a["signal_dbm"], reverse=True)
+
+    weak = [a.get("ssid", "") for a in aps
+            if _norm_security(a.get("security", "")) in ("Open", "WEP", "WPA")]
+
+    return {
+        "ap_count": len(aps),
+        "bands": dict(sorted(bands.items())),
+        "channels": dict(sorted(channels.items())),
+        "security": dict(sorted(security.items())),
+        "recommend_2ghz_channel": rec24,
+        "by_signal": by_signal,
+        "weak_security_ssids": [s for s in weak if s],
+    }
+
+
 def co_channel_count(result: dict[str, Any]) -> int:
     """Number of nearby APs sharing the connected channel."""
     ch = result.get("current", {}).get("channel", "")

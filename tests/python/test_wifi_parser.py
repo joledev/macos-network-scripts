@@ -102,3 +102,34 @@ def test_apply_field_ignores_non_numeric_tx_rate():
     ap = {"tx_rate_mbps": None}
     wifi_parser._apply_field(ap, "Transmit Rate", "unknown")
     assert ap["tx_rate_mbps"] is None
+
+
+def test_survey_tallies_from_fixture(fixtures_dir):
+    text = (fixtures_dir / "system_profiler_airport.txt").read_text()
+    s = wifi_parser.survey(wifi_parser.parse(text))
+    assert s["ap_count"] >= 1
+    assert isinstance(s["bands"], dict)
+    assert isinstance(s["channels"], dict)
+    assert isinstance(s["security"], dict)
+    # sum of band counts equals ap_count
+    assert sum(s["bands"].values()) == s["ap_count"]
+
+
+def test_survey_recommends_least_crowded_24ghz():
+    result = {"nearby_aps": [
+        {"channel": "1 (2GHz, 20MHz)", "band": "2GHz", "security": "WPA2", "signal_dbm": -40},
+        {"channel": "1 (2GHz, 20MHz)", "band": "2GHz", "security": "WPA2", "signal_dbm": -50},
+        {"channel": "6 (2GHz, 20MHz)", "band": "2GHz", "security": "WPA2", "signal_dbm": -60},
+    ], "current": {}}
+    s = wifi_parser.survey(result)
+    assert s["recommend_2ghz_channel"] == 11   # 1 and 6 used, 11 empty
+
+
+def test_survey_flags_weak_security():
+    result = {"nearby_aps": [
+        {"channel": "6 (2GHz, 20MHz)", "band": "2GHz", "security": "None", "signal_dbm": -55, "ssid": "OpenNet"},
+        {"channel": "6 (2GHz, 20MHz)", "band": "2GHz", "security": "WPA2 Personal", "signal_dbm": -55, "ssid": "Safe"},
+    ], "current": {}}
+    s = wifi_parser.survey(result)
+    assert "OpenNet" in s["weak_security_ssids"]
+    assert "Safe" not in s["weak_security_ssids"]
