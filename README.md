@@ -88,7 +88,8 @@ Reports land under `output/`:
 ./bin/netkit snmp --host H         Read-only SNMP walk (needs net-snmp)
 ./bin/netkit unifi                 UniFi Controller inventory (env-based auth)
 ./bin/netkit inventory             OS / hardware / tools
-./bin/netkit recon [--active]      One-pass discovery + interactive HTML map + mermaid
+./bin/netkit recon [--active]      One-pass discovery → JSON + mermaid + interactive
+                                   map + vis-network editor (.editor.html) + .drawio
 ./bin/netkit report                Combined report (default safe mode)
 ./bin/netkit history [--all]       List past reports under output/
 ./bin/netkit diff [A] [B]          Diff two reports (default: previous vs latest)

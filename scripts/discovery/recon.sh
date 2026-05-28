@@ -4,10 +4,13 @@
 # Runs the discovery modules together, merges everything into a single
 # per-host model, and emits three artifacts under output/:
 #
-#   recon-<ts>.json   merged dataset (ip, mac, vendor, rdns, role, open
-#                     ports/services, HTTP/TLS banners, SSDP model, UBNT model)
-#   recon-<ts>.mmd    classified, styled mermaid map (renders in Obsidian)
-#   recon-<ts>.html   self-contained interactive network map (open in a browser)
+#   recon-<ts>.json         merged dataset (ip, mac, vendor, rdns, role, open
+#                           ports/services, HTTP/TLS, SSDP/mDNS/UBNT identity)
+#   recon-<ts>.mmd          classified, styled mermaid map (renders in Obsidian)
+#   recon-<ts>.html         self-contained interactive map (read-only, lightweight)
+#   recon-<ts>.editor.html  full editor (vis-network): create/edit/delete nodes
+#                           & edges, rooms/groups, assign IP/type, save/load JSON
+#   recon-<ts>.drawio       open in draw.io / diagrams.net for pro editing
 #
 # Modules folded in: discover (ARP + optional active sweep), fingerprint
 # (ports/HTTP/TLS), ssdp (UPnP), ubnt-discover (Ubiquiti), wifi, interfaces,
@@ -64,6 +67,8 @@ TS=$(timestamp)
 JSON_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.json"
 MMD_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.mmd"
 HTML_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.html"
+EDITOR_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.editor.html"
+DRAWIO_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.drawio"
 
 if dry_run; then
   log_dry "recon would (interface=${IFACE:-auto}, subnet=${SUBNET:-?}, active=${ACTIVE}, aggressive=${AGGRESSIVE}):"
@@ -158,6 +163,7 @@ fi
 NETKIT_GW="$(default_gateway 2>/dev/null || echo "")"
 export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_ROOT \
        NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MMD_OUT="$MMD_OUT" NETKIT_HTML_OUT="$HTML_OUT" \
+       NETKIT_EDITOR_OUT="$EDITOR_OUT" NETKIT_DRAWIO_OUT="$DRAWIO_OUT" \
        NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET" NETKIT_GW \
        NETKIT_STDOUT_FMT="$STDOUT_FMT"
 
@@ -524,13 +530,29 @@ for sif in self_ifaces:
 with open(os.environ["NETKIT_MMD_OUT"], "w") as f:
     f.write("\n".join(lines) + "\n")
 
-# ---- interactive HTML map ----
+# ---- interactive HTML map (static, lightweight) ----
 try:
     import recon_map
     with open(os.environ["NETKIT_HTML_OUT"], "w") as f:
         f.write(recon_map.render(report))
 except Exception as e:
     print(f"warn: html map render failed: {e}", file=sys.stderr)
+
+# ---- interactive editor (vis-network) ----
+try:
+    import recon_editor
+    with open(os.environ["NETKIT_EDITOR_OUT"], "w") as f:
+        f.write(recon_editor.render(report))
+except Exception as e:
+    print(f"warn: editor render failed: {e}", file=sys.stderr)
+
+# ---- draw.io export ----
+try:
+    import drawio_export
+    with open(os.environ["NETKIT_DRAWIO_OUT"], "w") as f:
+        f.write(drawio_export.render(report))
+except Exception as e:
+    print(f"warn: drawio export failed: {e}", file=sys.stderr)
 
 # ---- stdout summary ----
 fmt = os.environ.get("NETKIT_STDOUT_FMT", "")
@@ -550,3 +572,5 @@ PY
 log_ok "JSON   → ${JSON_OUT/#$NETKIT_ROOT\//}"
 log_ok "Mermaid→ ${MMD_OUT/#$NETKIT_ROOT\//}"
 log_ok "Map    → ${HTML_OUT/#$NETKIT_ROOT\//}"
+log_ok "Editor → ${EDITOR_OUT/#$NETKIT_ROOT\//}"
+log_ok "draw.io→ ${DRAWIO_OUT/#$NETKIT_ROOT\//}"
