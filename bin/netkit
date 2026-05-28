@@ -15,6 +15,7 @@
 #   lldp                  LLDP/CDP capture → switch/port/VLAN (needs --allow-raw)
 #   dhcp                  DHCP fingerprint (hostname/vendor/opt-55) (--allow-raw)
 #   omada                 TP-Link Omada/EAP discovery (UDP 29810; key via env)
+#   devinfo               Authenticated identify of YOUR devices (configs/devices.toml)
 #   dns                   Show DNS resolvers and per-service config
 #   mdns [--duration N]   Browse Bonjour / mDNS services (model from TXT)
 #   topology [--active]   Map local topology; supports --mermaid output
@@ -64,7 +65,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,57p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -115,6 +116,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/discovery/dhcp.sh" "$@" ;;
   omada|eap)
     "${NETKIT_ROOT}/scripts/discovery/omada.sh" "$@" ;;
+  devinfo|login)
+    "${NETKIT_ROOT}/scripts/discovery/devinfo.sh" "$@" ;;
   dns)
     "${NETKIT_ROOT}/scripts/discovery/dns.sh" "$@" ;;
   mdns|bonjour)

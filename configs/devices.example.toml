@@ -1,0 +1,32 @@
+# netkit devices — YOUR OWN devices only, for authenticated identify/manage.
+#
+# Copy to configs/devices.toml (gitignored) and fill in. `netkit devinfo` reads
+# it to log into each device's web panel (HTTP) or SSH and pull model/firmware/
+# neighbors — the way to identify gear that hides its model behind a login.
+#
+# SECURITY: prefer `pass = "env:VAR"` so the secret stays out of the file; set
+# the env var before running (e.g. in your shell or .env). Inline passwords work
+# but live in this gitignored file at rest. netkit never prints or commits them.
+#
+# Only list devices you own / are authorized to access.
+
+[[device]]
+name  = "EAP-Sala"            # friendly label
+host  = "192.168.1.42"
+type  = "http"               # "http" or "ssh"
+user  = "admin"
+pass  = "env:NETKIT_EAP_PASS"  # resolved from $NETKIT_EAP_PASS; or inline "secret"
+url   = "https://192.168.1.42/"
+# Optional form-login flow (when Basic-auth isn't used):
+# login_url = "https://192.168.1.42/cgi-bin/luci/login"
+# info_url  = "https://192.168.1.42/cgi-bin/luci/admin/status"
+
+[[device]]
+name  = "Router"
+host  = "192.168.1.1"
+type  = "ssh"
+user  = "admin"
+pass  = "env:NETKIT_ROUTER_PASS"   # used only if sshpass is installed; else key auth
+port  = 22
+# Override the read-only commands run over SSH (defaults cover uname/model/neighbors):
+# commands = ["uname -a", "cat /tmp/sysinfo/model", "ip neigh"]

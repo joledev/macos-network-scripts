@@ -76,6 +76,7 @@ Reports land under `output/`:
 ./bin/netkit lldp --allow-raw      LLDP/CDP capture -> switch/port/VLAN topology
 ./bin/netkit dhcp --allow-raw      DHCP fingerprint (hostname / vendor / opt-55)
 ./bin/netkit omada                 TP-Link Omada/EAP discovery (UDP 29810)
+./bin/netkit devinfo               Authenticated identify of YOUR devices (HTTP/SSH)
 ./bin/netkit dns                   DNS resolver and per-service config
 ./bin/netkit mdns [--duration N]   Browse Bonjour / mDNS services
 ./bin/netkit topology [--mermaid]  Topology map
