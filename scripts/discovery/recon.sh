@@ -365,10 +365,11 @@ def best_name(rec):
     sd = rec.get("ssdp") or {}
     ub = rec.get("ubnt") or {}
     vp = rec.get("vendor_proto") or {}
+    http_title = next((h.get("title") for h in (rec.get("http") or []) if h.get("title")), "")
     for cand in (rec.get("known_name"), nb.get("hostname"), md.get("friendly_name"),
                  sd.get("friendly_name"), vp.get("name"), md.get("model_name"),
                  ub.get("model_full"), ub.get("model"), sd.get("model_name"),
-                 rec.get("rdns")):
+                 http_title, rec.get("rdns")):
         if cand:
             return cand
     return ""
