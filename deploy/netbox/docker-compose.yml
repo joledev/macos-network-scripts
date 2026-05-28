@@ -1,0 +1,76 @@
+# Minimal NetBox quickstart for netkit's source-of-truth.
+#
+# This is a small, single-host compose to get NetBox up fast so you can push
+# the recon inventory into it. For production use the official, fully-featured
+# stack: https://github.com/netbox-community/netbox-docker
+#
+# Bring up:   cp .env.example .env  &&  edit secrets  &&  docker compose up -d
+# UI:         http://localhost:8000   (login with SUPERUSER_NAME / _PASSWORD)
+# API token:  SUPERUSER_API_TOKEN below is created automatically — use it as
+#             NETKIT_NETBOX_TOKEN.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: netbox
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - netbox-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbox"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - netbox-redis:/data
+
+  netbox: &netbox
+    image: netboxcommunity/netbox:latest   # pin a version for production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      ALLOWED_HOSTS: "*"
+      DB_HOST: postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: "0"
+      REDIS_CACHE_HOST: redis
+      REDIS_CACHE_PORT: "6379"
+      REDIS_CACHE_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_CACHE_DATABASE: "1"
+      SECRET_KEY: ${SECRET_KEY}
+      SUPERUSER_NAME: ${SUPERUSER_NAME}
+      SUPERUSER_EMAIL: ${SUPERUSER_EMAIL}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD}
+      SUPERUSER_API_TOKEN: ${SUPERUSER_API_TOKEN}
+      SKIP_STARTUP_SCRIPTS: "false"
+    ports:
+      - "8000:8080"
+    volumes:
+      - netbox-media:/opt/netbox/netbox/media
+
+  netbox-worker:
+    <<: *netbox
+    depends_on:
+      netbox:
+        condition: service_started
+    command: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker
+    ports: []
+
+volumes:
+  netbox-postgres:
+  netbox-redis:
+  netbox-media:
