@@ -40,7 +40,7 @@ def _esc(s: Any) -> str:
 def _node_name(rec: dict) -> str:
     sd = rec.get("ssdp") or {}
     ub = rec.get("ubnt") or {}
-    return (rec.get("known_name") or sd.get("friendly_name")
+    return (rec.get("display") or rec.get("known_name") or sd.get("friendly_name")
             or ub.get("model_full") or ub.get("model")
             or rec.get("vendor") or rec.get("rdns") or rec["ip"])
 
@@ -285,6 +285,24 @@ function detail(rec){{
     for(const [k,v] of Object.entries(rec.ubnt)) h += row(k, esc(v));
     h += '</div></div>';
   }}
+  if(rec.mdns){{
+    h += '<div class="sec"><b>mDNS / Bonjour</b><div class="kv">';
+    for(const [k,v] of Object.entries(rec.mdns)) h += row(k, esc(v));
+    h += '</div></div>';
+  }}
+  if(rec.netbios){{
+    h += '<div class="sec"><b>NetBIOS</b><div class="kv">';
+    h += row('hostname', esc(rec.netbios.hostname));
+    h += row('workgroup', esc(rec.netbios.workgroup));
+    h += row('services', esc((rec.netbios.services||[]).join(', ')));
+    h += '</div></div>';
+  }}
+  if(rec.wsd){{
+    h += `<div class="sec"><b>WS-Discovery</b><br>${{esc(rec.wsd.hint||'')}} <span class="muted">${{esc(rec.wsd.types||'')}}</span></div>`;
+  }}
+  if(rec.ipv6 && rec.ipv6.length){{
+    h += '<div class="sec"><b>IPv6</b><br>' + rec.ipv6.map(a=>`<code>${{esc(a)}}</code>`).join('<br>') + '</div>';
+  }}
   if(rec.os_guess) h += `<div class="sec"><b>OS guess</b><br>${{esc(rec.os_guess)}}</div>`;
   if(rec.sources) h += `<div class="sec muted">sources: ${{esc((rec.sources||[]).join(', '))}}</div>`;
   $('#detail').innerHTML = h;
@@ -313,7 +331,9 @@ function applyFilters(){{
   nodes.forEach(n=>{{
     const rec = JSON.parse(n.dataset.rec);
     const role = n.dataset.role;
-    const hay = [rec.ip,rec.vendor,rec.rdns,rec.known_name,
+    const hay = [rec.ip,rec.vendor,rec.rdns,rec.known_name,rec.display,rec.identity,
+                 rec.netbios&&rec.netbios.hostname,
+                 rec.mdns&&(rec.mdns.model_name||rec.mdns.model),
                  rec.ssdp&&rec.ssdp.friendly_name,rec.ssdp&&rec.ssdp.model_name]
                 .filter(Boolean).join(' ').toLowerCase();
     const hideRole = off.has(role);

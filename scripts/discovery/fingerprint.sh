@@ -78,6 +78,7 @@ guard_no_sudo
 if [[ -z "$HOSTS_CSV" ]]; then
   _self_ips="$(all_local_ipv4 2>/dev/null | paste -sd'|' -)"
   HOSTS_CSV="$(arp -an 2>/dev/null \
+    | grep -v incomplete \
     | awk '/\(/ {gsub(/[()]/, "", $2); print $2}' \
     | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' \
     | grep -vE '^(22[4-9]|23[0-9])\.' \

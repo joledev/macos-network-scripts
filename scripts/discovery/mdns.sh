@@ -53,22 +53,76 @@ fi
 export NETKIT_MDNS_DURATION="$DURATION" NETKIT_FMT="$FORMAT"
 
 python3 - <<'PY'
-import concurrent.futures, json, os, re, socket, subprocess, sys, time
+import concurrent.futures, json, os, re, socket, subprocess, sys, threading, time
+
+sys.path.insert(0, os.path.join(os.environ.get("NETKIT_ROOT", ""), "scripts/utils"))
+try:
+    import device_models
+except ImportError:
+    device_models = None
 
 DURATION = int(os.environ["NETKIT_MDNS_DURATION"])
 FMT      = os.environ["NETKIT_FMT"]
 
+
+def _unescape_txt(v: str) -> str:
+    # dns-sd escapes spaces in TXT values as "\ " and as "\032".
+    return v.replace("\\032", " ").replace("\\ ", " ").replace("\\\\", "\\")
+
+
+def resolve_txt(instance: str, service: str, timeout: float = 2.0) -> dict:
+    """`dns-sd -L` one instance briefly; return {host, port, txt:{...}}."""
+    out = {"host": "", "port": "", "txt": {}}
+    try:
+        proc = subprocess.Popen(
+            ["dns-sd", "-L", instance, service, "local."],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+    except OSError:
+        return out
+    killer = threading.Timer(timeout, proc.terminate)
+    killer.daemon = True
+    killer.start()
+    try:
+        for line in proc.stdout:
+            if "can be reached at" in line:
+                m = re.search(r"can be reached at (\S+?):(\d+)", line)
+                if m:
+                    out["host"] = m.group(1).rstrip(".")
+                    out["port"] = m.group(2)
+            elif "=" in line and "STARTING" not in line and "DATE" not in line:
+                toks = re.split(r"(?<!\\) ", line.strip())
+                for t in toks:
+                    if "=" in t:
+                        k, v = t.split("=", 1)
+                        if k and v:
+                            out["txt"][k] = _unescape_txt(v)
+                if out["txt"]:
+                    break  # first full TXT line is enough
+    finally:
+        killer.cancel()
+        if proc.poll() is None:
+            proc.terminate()
+        try:
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.kill(); proc.wait(timeout=1)
+    return out
+
 # Curated service types worth browsing on a home/office LAN. Naming is the
 # de-facto Apple / Bonjour registry — keep _tcp / _udp explicit.
 TYPES = [
+    "_device-info._tcp",   # model code (Apple `model=`, others)
     "_workstation._tcp",   # generic hostnames (Linux/macOS)
     "_companion-link._tcp",# Apple ecosystem (Continuity)
-    "_airplay._tcp",       # AppleTV, AirPlay-capable speakers
+    "_airplay._tcp",       # AppleTV, AirPlay-capable speakers (model/manufacturer)
     "_raop._tcp",           # AirPlay audio receivers
-    "_googlecast._tcp",    # Chromecast / Google Home
+    "_googlecast._tcp",    # Chromecast / Google Home (md=/fn=)
     "_hap._tcp",            # HomeKit accessories
+    "_sonos._tcp",          # Sonos speakers
+    "_spotify-connect._tcp",# Spotify Connect endpoints
     "_smb._tcp",            # SMB / Windows file sharing
     "_ipp._tcp",            # IPP printers
+    "_pdl-datastream._tcp", # raw print (model in TXT)
     "_printer._tcp",       # legacy printer advertisements
 ]
 
@@ -170,11 +224,24 @@ for t, names in results.items():
         seen.add(key)
         flat.append({"service": t, "instance": n, "ip": ""})
 
-# Resolve in parallel.
-with concurrent.futures.ThreadPoolExecutor(max_workers=16) as ex:
-    ips = list(ex.map(lambda r: resolve(r["instance"]), flat))
-for r, ip in zip(flat, ips):
-    r["ip"] = ip
+# Enrich each instance: resolve its TXT record (model/manufacturer/serial/mac)
+# and its IP, in parallel.
+def enrich(r: dict) -> None:
+    info = resolve_txt(r["instance"], r["service"])
+    if info.get("host"):
+        r["host"] = info["host"]
+    if info.get("port"):
+        r["port"] = info["port"]
+    txt = info.get("txt") or {}
+    if txt:
+        r["txt"] = txt
+        if device_models is not None:
+            for k, v in device_models.identify(txt, r["service"]).items():
+                r[k] = v
+    r["ip"] = resolve(r["instance"]) or (resolve(info["host"]) if info.get("host") else "")
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=min(12, max(1, len(flat)))) as ex:
+    list(ex.map(enrich, flat))
 
 out = {
     "duration_s": DURATION,
@@ -185,6 +252,22 @@ out = {
     "resolved_count": sum(1 for r in flat if r["ip"]),
 }
 
+def _ident(r):
+    """Compact 'manufacturer model (name)' identity string for a record."""
+    bits = []
+    mk = r.get("manufacturer", "")
+    md = r.get("model_name") or r.get("model", "")
+    if mk and md and mk.lower() not in md.lower():
+        bits.append(f"{mk} {md}")
+    elif md:
+        bits.append(md)
+    elif mk:
+        bits.append(mk)
+    if r.get("friendly_name") and r["friendly_name"] not in r["instance"]:
+        bits.append(f"“{r['friendly_name']}”")
+    return " ".join(bits)
+
+
 if FMT == "json":
     print(json.dumps(out, indent=2))
 elif FMT == "md":
@@ -192,10 +275,11 @@ elif FMT == "md":
     print(f"_Browsed {len(TYPES)} service types for {DURATION} s, resolved {out['resolved_count']} to IPs._\n")
     if not flat:
         print("_no Bonjour services responded._"); sys.exit(0)
-    print("| service | instance | ip |")
-    print("| --- | --- | --- |")
+    print("| service | instance | ip | identity | mac |")
+    print("| --- | --- | --- | --- | --- |")
     for r in flat:
-        print(f"| {r['service']} | {r['instance']} | {r['ip'] or '-'} |")
+        ident = _ident(r).replace("|", r"\|")
+        print(f"| {r['service']} | {r['instance']} | {r['ip'] or '-'} | {ident or '-'} | {r.get('mac','-') or '-'} |")
 else:
     print(f"mDNS browse — {len(TYPES)} types × {DURATION}s, "
           f"{out['count']} instance(s), {out['resolved_count']} resolved")
@@ -203,8 +287,8 @@ else:
     if not flat:
         print("(no Bonjour services responded)")
         sys.exit(0)
-    print(f"{'service':<28} {'ip':<16} instance")
-    print("-" * 90)
+    print(f"{'service':<24} {'ip':<16} {'instance':<34} identity")
+    print("-" * 110)
     for r in flat:
-        print(f"{r['service']:<28} {(r['ip'] or '-'):<16} {r['instance']}")
+        print(f"{r['service']:<24} {(r['ip'] or '-'):<16} {r['instance'][:34]:<34} {_ident(r)}")
 PY

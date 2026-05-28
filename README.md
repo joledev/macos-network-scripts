@@ -69,6 +69,9 @@ Reports land under `output/`:
 ./bin/netkit fingerprint           Deep per-host probe (ports, HTTP/TLS, role)
 ./bin/netkit ssdp                  UPnP / SSDP discovery (TVs, routers, media)
 ./bin/netkit ubnt-discover         Ubiquiti discovery (UniFi / airMAX / EdgeMax)
+./bin/netkit netbios               NetBIOS/NBNS names (Windows/NAS hostname + workgroup)
+./bin/netkit wsd                   WS-Discovery (Windows hosts, printers, scanners)
+./bin/netkit ndp                   IPv6 neighbors (hosts ARP/IPv4 cannot see)
 ./bin/netkit dns                   DNS resolver and per-service config
 ./bin/netkit mdns [--duration N]   Browse Bonjour / mDNS services
 ./bin/netkit topology [--mermaid]  Topology map

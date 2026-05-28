@@ -43,10 +43,21 @@ def _normalize(mac: str) -> str:
     return "".join(c for c in mac.upper() if c in "0123456789ABCDEF")[:6]
 
 
+def _normalize_full(mac: str) -> str:
+    return "".join(c for c in mac.upper() if c in "0123456789ABCDEF")[:12]
+
+
 def lookup(mac: str) -> str:
-    prefix = _normalize(mac)
-    if len(prefix) < 6:
+    full = _normalize_full(mac)
+    if len(full) < 6:
         return "Unknown"
+    # Wireshark manuf is richest: try MA-S (36-bit) → MA-M (28-bit) → OUI (24-bit).
+    manuf = _load_manuf()
+    if manuf:
+        for nib in (9, 7, 6):
+            if len(full) >= nib and full[:nib] in manuf[nib]:
+                return manuf[nib][full[:nib]]
+    prefix = full[:6]
     if prefix in _BUILTIN_OUI:
         return _BUILTIN_OUI[prefix]
     cache = _load_cache()
@@ -58,6 +69,66 @@ def lookup(mac: str) -> str:
 def _cache_path() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
     return base / "netkit" / "oui.txt"
+
+
+def _manuf_path() -> Path:
+    base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    return base / "netkit" / "manuf"
+
+
+_MANUF_CACHE: dict[int, dict[str, str]] | None = None
+_MANUF_LOADED = False
+
+
+def _load_manuf() -> dict[int, dict[str, str]] | None:
+    """Parse the Wireshark `manuf` file into per-prefix-length maps.
+
+    manuf lines: `PREFIX<TAB>short[<TAB>long]`, where PREFIX is `XX:XX:XX`
+    (24-bit) or `XX:XX:XX:XX:X0:00/28` (MA-M) or `.../36` (MA-S). We key each
+    entry by its hex-nibble count (6/7/9) so lookup can try most-specific first.
+    """
+    global _MANUF_CACHE, _MANUF_LOADED
+    if _MANUF_LOADED:
+        return _MANUF_CACHE
+    _MANUF_LOADED = True
+    p = _manuf_path()
+    if not p.is_file():
+        _MANUF_CACHE = None
+        return None
+    by_len: dict[int, dict[str, str]] = {6: {}, 7: {}, 9: {}}
+    try:
+        with p.open(encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 2:
+                    continue
+                pfx = parts[0].strip()
+                name = ""
+                if len(parts) >= 3 and parts[2].strip():
+                    name = parts[2].strip()
+                else:
+                    name = parts[1].strip()
+                if "/" in pfx:
+                    mac_part, _, bits_s = pfx.partition("/")
+                    try:
+                        bits = int(bits_s)
+                    except ValueError:
+                        continue
+                else:
+                    mac_part = pfx
+                    bits = (mac_part.count(":") + 1) * 8
+                hexs = "".join(c for c in mac_part.upper() if c in "0123456789ABCDEF")
+                nib = bits // 4
+                if nib in by_len and len(hexs) >= nib:
+                    by_len[nib][hexs[:nib]] = name
+    except OSError:
+        _MANUF_CACHE = None
+        return None
+    _MANUF_CACHE = by_len if any(by_len.values()) else None
+    return _MANUF_CACHE
 
 
 def _load_cache() -> dict[str, str] | None:

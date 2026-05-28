@@ -133,9 +133,18 @@ else
   echo '{"hosts":[]}' > "$TMP_DIR/fingerprint.json"
 fi
 
-# 3) ssdp / 4) ubnt / 5) wifi / 6) interfaces
+# 3) ssdp / 4) ubnt / 5) mdns / 6) netbios / 7) wsd / 8) ndp / 9) wifi / 10) interfaces
 run_one "ssdp"       "$TMP_DIR/ssdp.json"       '{"devices":[]}' "${SCRIPT_DIR}/ssdp.sh" --json
 run_one "ubnt"       "$TMP_DIR/ubnt.json"       '{"devices":[]}' "${SCRIPT_DIR}/ubnt.sh" --json
+run_one "mdns"       "$TMP_DIR/mdns.json"       '{"instances":[]}' "${SCRIPT_DIR}/mdns.sh" --json --duration 5
+run_one "wsd"        "$TMP_DIR/wsd.json"        '{"devices":[]}' "${SCRIPT_DIR}/wsd.sh" --json
+run_one "ndp"        "$TMP_DIR/ndp.json"        '{"neighbors":[]}' "${SCRIPT_DIR}/ndp.sh" --json
+[[ -n "$IFACE" ]] && run_one "ndp" "$TMP_DIR/ndp.json" '{"neighbors":[]}' "${SCRIPT_DIR}/ndp.sh" --json --interface "$IFACE"
+if [[ -n "$HOSTS_CSV" ]]; then
+  run_one "netbios" "$TMP_DIR/netbios.json" '{"hosts":[]}' "${SCRIPT_DIR}/netbios.sh" --json --hosts "$HOSTS_CSV"
+else
+  echo '{"hosts":[]}' > "$TMP_DIR/netbios.json"
+fi
 run_one "wifi"       "$TMP_DIR/wifi.json"       '{}' "${SCRIPT_DIR}/../diagnostics/wifi.sh" --json
 run_one "interfaces" "$TMP_DIR/interfaces.json" '{}' "${SCRIPT_DIR}/interfaces.sh" --json
 if (( WITH_STARLINK )); then
@@ -170,6 +179,10 @@ hosts_mod = load("hosts")
 fp_mod    = load("fingerprint")
 ssdp_mod  = load("ssdp")
 ubnt_mod  = load("ubnt")
+mdns_mod  = load("mdns")
+nb_mod    = load("netbios")
+wsd_mod   = load("wsd")
+ndp_mod   = load("ndp")
 wifi_mod  = load("wifi")
 ifs_mod   = load("interfaces")
 sl_mod    = load("starlink")
@@ -199,29 +212,63 @@ for d in ubnt_mod.get("devices", []):
     for m in d.get("macs", []):
         ubnt_by_mac[m.lower()] = d
 
+# mDNS instances → best identity per ip (and per mac when present).
+mdns_by_ip = {}
+mdns_by_mac = {}
+for inst in mdns_mod.get("instances", []):
+    ident = {k: inst.get(k) for k in
+             ("model", "model_name", "manufacturer", "friendly_name", "kind")
+             if inst.get(k)}
+    if not ident:
+        continue
+    ip = inst.get("ip", "")
+    score = sum(bool(ident.get(k)) for k in ("model_name", "manufacturer", "friendly_name"))
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", ip):
+        cur = mdns_by_ip.get(ip)
+        if not cur or score > cur[0]:
+            mdns_by_ip[ip] = (score, ident)
+    if inst.get("mac"):
+        mdns_by_mac[inst["mac"].lower()] = ident
+mdns_by_ip = {ip: ident for ip, (s, ident) in mdns_by_ip.items()}
+
+nb_by_ip = {h["ip"]: h for h in nb_mod.get("hosts", []) if h.get("ip")}
+wsd_by_ip = {d["ip"]: d for d in wsd_mod.get("devices", []) if d.get("ip")}
+ndp_by_mac = {}
+for n in ndp_mod.get("neighbors", []):
+    if n.get("mac"):
+        ndp_by_mac.setdefault(n["mac"].lower(), []).append(n["address"])
+
 
 def reclassify(rec):
-    """Sharpen the role using SSDP/UBNT signals on top of fingerprint's guess."""
+    """Sharpen the role using SSDP/mDNS/NetBIOS/WSD/UBNT signals on top of
+    fingerprint's guess."""
     role = rec.get("role", "host")
     sd = rec.get("ssdp") or {}
+    md = rec.get("mdns") or {}
+    nb = rec.get("netbios") or {}
+    wd = rec.get("wsd") or {}
     dtype = (sd.get("device_type") or "").lower()
-    name = (sd.get("friendly_name") or "").lower()
-    model = (sd.get("model_name") or "").lower()
-    blob = " ".join([dtype, name, model, sd.get("manufacturer", "").lower()])
+    blob = " ".join([
+        dtype, (sd.get("friendly_name") or "").lower(), (sd.get("model_name") or "").lower(),
+        (sd.get("manufacturer") or "").lower(), (md.get("kind") or "").lower(),
+        (md.get("model_name") or md.get("model") or "").lower(),
+        (wd.get("hint") or "").lower(),
+    ])
     if rec.get("ubnt"):
         return "ap/switch/router"
-    if rec["ip"] == gw:
-        return "router/gateway"
-    if "internetgatewaydevice" in dtype:
+    if rec["ip"] == gw or "internetgatewaydevice" in dtype:
         return "router/gateway"
     if any(k in blob for k in ("mediarenderer", "dial", "chromecast", "smarttv",
-                               "roku", "appletv", "androidtv", "hisense tv")):
+                               "roku", "appletv", "androidtv", "tv", "cast")):
         return "tv/media"
     if "mediaserver" in dtype:
         return "media-server"
-    if "printer" in blob:
+    if "printer" in blob or "scanner" in blob:
         return "printer"
-    # otherwise keep fingerprint's role
+    if "file-server" in (nb.get("services") or []) or "nas" in blob:
+        return "nas/file-server"
+    if md.get("kind", "").startswith("apple"):
+        return "computer" if role in ("host", "host (no open ports)") else role
     return role
 
 
@@ -281,9 +328,54 @@ for ip, rec in merged.items():
                        ("model", "model_full", "firmware", "hostname", "essid", "uptime_s")
                        if d.get(k)}
 
+# Overlay mDNS / NetBIOS / WSD / IPv6 signals onto each host.
+for ip, rec in merged.items():
+    mac = (rec.get("mac") or "").lower()
+    if ip in mdns_by_ip:
+        rec["mdns"] = mdns_by_ip[ip]
+    elif mac and mac in mdns_by_mac:
+        rec["mdns"] = mdns_by_mac[mac]
+    if rec.get("mdns") and "mdns" not in rec["sources"]:
+        rec["sources"].append("mdns")
+    if ip in nb_by_ip:
+        nb = nb_by_ip[ip]
+        rec["netbios"] = {k: nb.get(k) for k in ("hostname", "workgroup", "services") if nb.get(k)}
+        rec["sources"].append("netbios")
+    if ip in wsd_by_ip:
+        wd = wsd_by_ip[ip]
+        rec["wsd"] = {k: wd.get(k) for k in ("hint", "types") if wd.get(k)}
+        rec["sources"].append("wsd")
+    if mac and mac in ndp_by_mac:
+        rec["ipv6"] = ndp_by_mac[mac]
+        rec["sources"].append("ipv6")
+
+
+def best_name(rec):
+    nb = rec.get("netbios") or {}
+    md = rec.get("mdns") or {}
+    sd = rec.get("ssdp") or {}
+    ub = rec.get("ubnt") or {}
+    for cand in (rec.get("known_name"), nb.get("hostname"), md.get("friendly_name"),
+                 sd.get("friendly_name"), md.get("model_name"), ub.get("model_full"),
+                 ub.get("model"), sd.get("model_name"), rec.get("rdns")):
+        if cand:
+            return cand
+    return ""
+
+
 for rec in merged.values():
     rec.setdefault("role", "host")
     rec["role"] = reclassify(rec)
+    rec["display"] = best_name(rec)
+    md = rec.get("mdns") or {}
+    sd = rec.get("ssdp") or {}
+    ub = rec.get("ubnt") or {}
+    manu = md.get("manufacturer") or sd.get("manufacturer") or ""
+    model = (md.get("model_name") or md.get("model") or sd.get("model_name")
+             or ub.get("model_full") or ub.get("model") or "")
+    ident = f"{manu} {model}".strip()
+    if ident:
+        rec["identity"] = ident
 
 hosts = sorted(merged.values(),
                key=lambda r: tuple(int(x) for x in r["ip"].split(".")) if re.match(r"^\d+\.\d+\.\d+\.\d+$", r["ip"]) else (0,))
@@ -348,15 +440,12 @@ def esc(s):
 
 def label(rec):
     parts = [rec["ip"]]
-    sd = rec.get("ssdp") or {}
-    ub = rec.get("ubnt") or {}
-    name = rec.get("known_name") or sd.get("friendly_name") or ub.get("model_full") \
-        or ub.get("model") or rec.get("vendor") or rec.get("rdns") or ""
+    name = rec.get("display") or rec.get("vendor") or ""
     if name:
         parts.append(esc(name)[:28])
-    model = sd.get("model_name") or ub.get("model_full") or ""
-    if model and model not in name:
-        parts.append(esc(model)[:24])
+    ident = rec.get("identity") or ""
+    if ident and ident.lower() not in (name or "").lower():
+        parts.append(esc(ident)[:26])
     if rec.get("ports"):
         svc = "/".join(str(p) for p in rec["ports"][:5])
         parts.append("ports " + svc)

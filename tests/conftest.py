@@ -21,6 +21,23 @@ NETKIT_BIN = REPO_ROOT / "bin" / "netkit"
 sys.path.insert(0, str(UTILS_DIR))
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_cache(tmp_path, monkeypatch):
+    """Point XDG_CACHE_HOME at an empty per-test dir so tests never read the
+    developer's real ~/.cache/netkit (oui.txt / Wireshark manuf). Without this,
+    oui lookups would resolve against whatever the user happens to have cached,
+    making vendor-string assertions non-hermetic. Tests that want a cache create
+    files under their own XDG_CACHE_HOME. Also resets oui's manuf memo."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg_cache"))
+    try:
+        import oui
+        oui._MANUF_LOADED = False
+        oui._MANUF_CACHE = None
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture()
 def repo_root() -> Path:
     return REPO_ROOT

@@ -72,3 +72,39 @@ def test_recon_dry_run_runs_nothing(run_netkit, tmp_output_dir):
     p = run_netkit("recon", "--active", "--dry-run")
     assert p.returncode == 0
     assert "no probes executed" in p.stderr.lower()
+
+
+# ---- Tier-1 enrichment commands: netbios / wsd / ndp ----
+TIER1_CMDS = ["netbios", "wsd", "ndp"]
+
+
+@pytest.mark.parametrize("cmd", TIER1_CMDS)
+def test_tier1_help(run_netkit, cmd):
+    p = run_netkit(cmd, "--help")
+    assert p.returncode == 0
+    assert "Usage" in p.stdout
+
+
+@pytest.mark.parametrize("cmd", TIER1_CMDS)
+def test_tier1_unknown_flag(run_netkit, cmd):
+    p = run_netkit(cmd, "--bogus")
+    assert p.returncode == 2
+    assert "Unknown flag" in p.stderr
+
+
+@pytest.mark.parametrize("cmd", TIER1_CMDS)
+def test_tier1_dry_run(run_netkit, cmd):
+    p = run_netkit(cmd, "--dry-run")
+    assert p.returncode == 0
+    assert "[dry-run]" in p.stderr
+
+
+def test_netbios_rejects_bad_host(run_netkit):
+    p = run_netkit("netbios", "--hosts", "nope", "--dry-run")
+    assert p.returncode == 2
+    assert "invalid token" in p.stderr.lower()
+
+
+def test_wsd_rejects_bad_duration(run_netkit):
+    p = run_netkit("wsd", "--duration", "0")
+    assert p.returncode == 2
