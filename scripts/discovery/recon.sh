@@ -18,11 +18,13 @@
 # single active ping sweep is confirmed once here (honors --yes).
 #
 # Usage:
-#   recon.sh [--active] [--aggressive] [--interface en7]
+#   recon.sh [--active] [--aggressive] [--interface en7] [--subnets a/24,b/24]
 #            [--with-starlink] [--json|--text]
 #
-#   --active        ping-sweep the subnet first (populates ARP) — confirmed once
+#   --active        ping-sweep the subnet(s) first (populates ARP) — confirmed once
 #   --aggressive    let fingerprint use nmap -sV (service/version) when present
+#   --subnets       comma-separated CIDRs to scan (building/multi-VLAN); default
+#                   is the local subnet. Routed ranges yield IPs (no MAC across L3)
 #   --with-starlink include the Starlink dish as the upstream node
 
 set -euo pipefail
@@ -35,12 +37,16 @@ AGGRESSIVE=0
 WITH_STARLINK=0
 IFACE=""
 STDOUT_FMT=""
+SUBNETS_CSV=""
 
 while (( $# )); do
   case "$1" in
     --active) ACTIVE=1; shift ;;
     --aggressive) AGGRESSIVE=1; shift ;;
     --with-starlink) WITH_STARLINK=1; shift ;;
+    --subnets)
+      [[ -n "${2:-}" ]] || die_usage "--subnets requires a comma-separated CIDR list"
+      SUBNETS_CSV="$2"; shift 2 ;;
     --interface)
       [[ -n "${2:-}" ]] || die_usage "--interface requires a value"
       IFACE="$2"; shift 2 ;;
@@ -62,6 +68,19 @@ guard_no_sudo
 SUBNET=""
 [[ -n "$IFACE" ]] && SUBNET=$(iface_subnet_cidr "$IFACE" 2>/dev/null || echo "")
 
+# Building / multi-VLAN: scan a list of ranges. Default to the local subnet.
+# Validate each CIDR up front.
+if [[ -n "$SUBNETS_CSV" ]]; then
+  IFS=',' read -r -a SUBNET_LIST <<< "$SUBNETS_CSV"
+  for _c in "${SUBNET_LIST[@]}"; do
+    _c="${_c// /}"; [[ -z "$_c" ]] && continue
+    [[ "$_c" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]] \
+      || die_usage "--subnets has invalid CIDR: '${_c}'"
+  done
+else
+  SUBNET_LIST=("$SUBNET")
+fi
+
 ensure_output_dir
 TS=$(timestamp)
 JSON_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.json"
@@ -71,8 +90,8 @@ EDITOR_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.editor.html"
 DRAWIO_OUT="${NETKIT_OUTPUT_DIR}/recon-${TS}.drawio"
 
 if dry_run; then
-  log_dry "recon would (interface=${IFACE:-auto}, subnet=${SUBNET:-?}, active=${ACTIVE}, aggressive=${AGGRESSIVE}):"
-  log_dry "  discover    : scripts/discovery/hosts.sh --json $([[ $ACTIVE == 1 ]] && echo --active)"
+  log_dry "recon would (interface=${IFACE:-auto}, subnets=${SUBNETS_CSV:-${SUBNET:-?}}, active=${ACTIVE}, aggressive=${AGGRESSIVE}):"
+  log_dry "  discover    : scripts/discovery/hosts.sh --json $([[ $ACTIVE == 1 ]] && echo --active) (per subnet)"
   log_dry "  fingerprint : scripts/discovery/fingerprint.sh --json --hosts <discovered> $([[ $AGGRESSIVE == 1 ]] && echo --aggressive)"
   log_dry "  ssdp        : scripts/discovery/ssdp.sh --json"
   log_dry "  ubnt        : scripts/discovery/ubnt.sh --json"
@@ -113,11 +132,47 @@ run_one() {
   return 0
 }
 
-# 1) discover (passive ARP + optional active sweep)
-DISC_FLAGS=("--json"); (( ACTIVE )) && DISC_FLAGS+=("--active")
-[[ -n "$IFACE" ]] && DISC_FLAGS+=("--interface" "$IFACE")
-run_one "discover" "$TMP_DIR/hosts.json" '{"hosts":[]}' \
-  "${SCRIPT_DIR}/hosts.sh" "${DISC_FLAGS[@]}"
+# 1) discover per subnet (passive ARP + optional active sweep), then merge the
+#    union. Remote (routed) subnets yield IPs but no MAC/vendor — L2 stops at
+#    the router; fingerprint (L3) still profiles them.
+DISC_BASE=("--json"); (( ACTIVE )) && DISC_BASE+=("--active")
+[[ -n "$IFACE" ]] && DISC_BASE+=("--interface" "$IFACE")
+_disc_files=()
+_i=0
+for _sn in "${SUBNET_LIST[@]}"; do
+  _f="$TMP_DIR/hosts_${_i}.json"
+  if [[ -n "$_sn" ]]; then
+    run_one "discover ${_sn}" "$_f" '{"hosts":[]}' \
+      "${SCRIPT_DIR}/hosts.sh" "${DISC_BASE[@]}" --subnet "$_sn"
+  else
+    run_one "discover" "$_f" '{"hosts":[]}' "${SCRIPT_DIR}/hosts.sh" "${DISC_BASE[@]}"
+  fi
+  _disc_files+=("$_f")
+  _i=$((_i + 1))
+done
+
+python3 - "$TMP_DIR/hosts.json" "${_disc_files[@]}" <<'PY'
+import json, sys
+out_path, files = sys.argv[1], sys.argv[2:]
+merged, meta = {}, {}
+for p in files:
+    try:
+        d = json.load(open(p))
+    except Exception:
+        continue
+    if not meta:
+        meta = {k: d.get(k) for k in ("interface", "subnet", "local_ip", "local_ips")}
+    for h in d.get("hosts", []):
+        ip = h.get("ip")
+        if ip and ip not in merged:
+            merged[ip] = h
+res = dict(meta)
+res["hosts"] = sorted(
+    merged.values(),
+    key=lambda h: tuple(int(x) for x in h["ip"].split(".")) if h.get("ip", "").count(".") == 3 else (0,))
+res["count"] = len(res["hosts"])
+json.dump(res, open(out_path, "w"))
+PY
 
 # Extract discovered IPs for the fingerprint host list.
 HOSTS_CSV="$(python3 -c '
@@ -165,6 +220,7 @@ export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_ROOT \
        NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MMD_OUT="$MMD_OUT" NETKIT_HTML_OUT="$HTML_OUT" \
        NETKIT_EDITOR_OUT="$EDITOR_OUT" NETKIT_DRAWIO_OUT="$DRAWIO_OUT" \
        NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET" NETKIT_GW \
+       NETKIT_SUBNETS="${SUBNETS_CSV:-$SUBNET}" \
        NETKIT_STDOUT_FMT="$STDOUT_FMT"
 
 python3 - <<'PY'
@@ -196,6 +252,28 @@ ifs_mod   = load("interfaces")
 sl_mod    = load("starlink")
 
 gw = os.environ.get("NETKIT_GW", "")
+
+import ipaddress
+_subnet_nets = []
+for _c in (os.environ.get("NETKIT_SUBNETS", "") or "").split(","):
+    _c = _c.strip()
+    if _c:
+        try:
+            _subnet_nets.append(ipaddress.ip_network(_c, strict=False))
+        except ValueError:
+            pass
+
+
+def host_subnet(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return None
+    for n in _subnet_nets:
+        if a in n:
+            return n
+    return None
+
 
 # --- index helpers ---
 fp_by_ip = {h["ip"]: h for h in fp_mod.get("hosts", []) if h.get("ip")}
@@ -395,6 +473,10 @@ for rec in merged.values():
     ident = f"{manu} {model}".strip()
     if ident:
         rec["identity"] = ident
+    sn = host_subnet(rec["ip"])
+    if sn is not None:
+        rec["subnet"] = str(sn)
+        rec["prefixlen"] = sn.prefixlen
 
 hosts = sorted(merged.values(),
                key=lambda r: tuple(int(x) for x in r["ip"].split(".")) if re.match(r"^\d+\.\d+\.\d+\.\d+$", r["ip"]) else (0,))

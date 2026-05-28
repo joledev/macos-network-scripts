@@ -74,6 +74,18 @@ def test_recon_dry_run_runs_nothing(run_netkit, tmp_output_dir):
     assert "no probes executed" in p.stderr.lower()
 
 
+def test_recon_rejects_bad_subnet(run_netkit):
+    p = run_netkit("recon", "--subnets", "not-a-cidr", "--dry-run")
+    assert p.returncode == 2
+    assert "invalid cidr" in p.stderr.lower()
+
+
+def test_recon_subnets_dry_run_lists_them(run_netkit, tmp_output_dir):
+    p = run_netkit("recon", "--subnets", "10.0.1.0/24,10.0.2.0/24", "--dry-run")
+    assert p.returncode == 0
+    assert "10.0.1.0/24" in p.stderr
+
+
 # ---- Tier-1 enrichment commands: netbios / wsd / ndp ----
 TIER1_CMDS = ["netbios", "wsd", "ndp"]
 

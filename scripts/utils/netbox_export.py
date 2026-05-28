@@ -42,12 +42,13 @@ def _dns_name(h: dict) -> str:
 
 
 def ip_rows(report: dict) -> list[dict]:
-    plen = _prefix_len(report)
+    default_plen = _prefix_len(report)
     rows = []
     for h in report.get("hosts", []):
         ip = h.get("ip", "")
         if not ip:
             continue
+        plen = h.get("prefixlen") or default_plen   # per-host prefix in multi-subnet
         rows.append({
             "address": _addr(ip, plen),
             "status": "active",
