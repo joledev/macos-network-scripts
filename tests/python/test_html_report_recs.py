@@ -36,3 +36,40 @@ def test_24ghz_clean_not_flagged():
     # Only 1 / 6 / 11 (and a 5GHz channel) → no 2.4GHz recommendation.
     txt = _recs_text(_base_report({"1": 1, "11": 1, "149": 2}))
     assert "2.4GHz" not in txt
+
+
+def _report_with_hosts(hosts):
+    r = _base_report({"1": 1})
+    r["hosts"] = {"hosts": hosts, "count": len(hosts)}
+    return r
+
+
+def test_iot_segmentation_flagged_with_multiple_cameras():
+    hosts = [
+        {"ip": "192.168.1.42", "role": "camera"},
+        {"ip": "192.168.1.53", "role": "camera"},
+        {"ip": "192.168.1.119", "role": "computer"},
+    ]
+    txt = _recs_text(_report_with_hosts(hosts))
+    assert "VLAN" in txt or "guest SSID" in txt
+    assert "2 camera" in txt
+
+
+def test_iot_segmentation_not_flagged_for_single_camera():
+    hosts = [
+        {"ip": "192.168.1.53", "role": "camera"},
+        {"ip": "192.168.1.119", "role": "computer"},
+    ]
+    txt = _recs_text(_report_with_hosts(hosts))
+    assert "separate VLAN" not in txt
+
+
+def test_mesh_backhaul_flagged_with_aps_and_camera():
+    hosts = [
+        {"ip": "192.168.1.69", "role": "ap/switch/router"},
+        {"ip": "192.168.1.70", "role": "ap/switch/router"},
+        {"ip": "192.168.1.53", "role": "camera"},
+    ]
+    txt = _recs_text(_report_with_hosts(hosts))
+    assert "backhaul" in txt
+    assert "2 mesh/AP nodes" in txt

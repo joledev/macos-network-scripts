@@ -449,6 +449,22 @@ if _ch24:
     _r24 = (_wifi.get("survey") or {}).get("recommend_2ghz_channel")
     recs.append(f"2.4GHz in use on overlapping channel(s) {sorted(set(_ch24))} — switch to 1, 6 or 11"
                 + (f" (least crowded here: {_r24})" if _r24 else "") + " to avoid co-channel interference.")
+# IoT/camera segmentation + mesh-backhaul advice (mirrors html_report.py).
+_hlist = (data.get("hosts", {}) or {}).get("hosts") or []
+def _role(h):
+    return (h.get("role") or "").lower()
+_cams = [h for h in _hlist if "camera" in _role(h)]
+_iots = [h for h in _hlist if "iot" in _role(h)]
+_aps = [h for h in _hlist if "ap/switch" in _role(h) or _role(h) == "ap"]
+if len(_cams) >= 2 or len(_cams) + len(_iots) >= 3:
+    recs.append(f"{len(_cams)} camera(s) + {len(_iots)} other IoT share the main LAN — put "
+                "cameras/IoT on a separate VLAN or guest SSID so a compromised device can't "
+                "reach phones, laptops, NAS or homelab. IoT cameras are frequent CVE targets, "
+                "so keep their firmware current too.")
+if len(_aps) >= 2 and len(_cams) >= 1:
+    recs.append(f"{len(_aps)} mesh/AP nodes with {len(_cams)} Wi-Fi camera(s) — cameras stream "
+                "constantly and load the 5GHz mesh backhaul; use Ethernet backhaul between nodes "
+                "and keep cameras on 2.4GHz to relieve the secondary node.")
 
 out.append("## Recommendations\n")
 if recs:

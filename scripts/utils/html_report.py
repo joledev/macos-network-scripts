@@ -480,6 +480,22 @@ def render(report: dict, *, brand: str = "Network Diagnostic Report") -> str:
         r24 = (wf.get("survey") or {}).get("recommend_2ghz_channel")
         recs.append(f"2.4GHz in use on overlapping channel(s) {sorted(set(ch24))} — switch to 1, 6 or 11"
                     + (f" (least crowded here: {_esc(r24)})" if r24 else "") + " to avoid co-channel interference.")
+    # IoT/camera segmentation: many cameras/IoT on one flat LAN is a real risk.
+    hlist = hosts.get("hosts") or []
+    def _role(h):
+        return (h.get("role") or "").lower()
+    cams = [h for h in hlist if "camera" in _role(h)]
+    iots = [h for h in hlist if "iot" in _role(h)]
+    aps = [h for h in hlist if "ap/switch" in _role(h) or _role(h) == "ap"]
+    if len(cams) >= 2 or len(cams) + len(iots) >= 3:
+        recs.append(f"{len(cams)} camera(s) + {len(iots)} other IoT share the main LAN — "
+                    "put cameras/IoT on a separate VLAN or guest SSID so a compromised device "
+                    "can't reach phones, laptops, NAS or homelab. IoT cameras are frequent "
+                    "CVE targets, so keep their firmware current too.")
+    if len(aps) >= 2 and len(cams) >= 1:
+        recs.append(f"{len(aps)} mesh/AP nodes with {len(cams)} Wi-Fi camera(s) — cameras stream "
+                    "constantly and load the 5GHz mesh backhaul; use Ethernet backhaul between nodes "
+                    "and keep cameras on 2.4GHz to relieve the secondary node.")
     recs_html = (
         '<ul class="recs">' + "".join(f"<li>{r}</li>" for r in recs) + '</ul>'
         if recs else '<p style="color:var(--muted)">No issues detected at the configured thresholds.</p>'
