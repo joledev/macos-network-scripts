@@ -5,6 +5,7 @@
 #   doctor                Verify environment, tools, and permissions
 #   interfaces            List network interfaces with kind, ip, status, speed
 #   discover [--active]   Discover LAN hosts (safe, ARP-only by default)
+#   routes                Reachable network segments / VLANs (routing table)
 #   fingerprint           Deep per-host probe (ports, HTTP/TLS, role) [--aggressive]
 #   ssdp                  UPnP / SSDP discovery (TVs, routers, media, repeaters)
 #   ubnt-discover         Ubiquiti device discovery (UniFi / airMAX / EdgeMax)
@@ -32,6 +33,7 @@
 #   inventory             OS, hardware and installed tools
 #   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
 #   recon [--active]      One-pass discovery + interactive HTML map + mermaid
+#   netbox-export         Export recon inventory to NetBox (CSV, or --push via API)
 #   report [--active]     Generate combined md/json/mermaid report under output/
 #   history [--all]       List past reports under output/ (one-line summary each)
 #   diff [A] [B]          Diff two reports (default: previous vs latest)
@@ -65,7 +67,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,58p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -96,6 +98,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/discovery/interfaces.sh" "$@" ;;
   discover|hosts)
     "${NETKIT_ROOT}/scripts/discovery/hosts.sh" "$@" ;;
+  routes|segments)
+    "${NETKIT_ROOT}/scripts/discovery/routes.sh" "$@" ;;
   fingerprint|fp)
     "${NETKIT_ROOT}/scripts/discovery/fingerprint.sh" "$@" ;;
   ssdp|upnp)
@@ -159,6 +163,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/reports/diff.sh" "$@" ;;
   recon|discover-all)
     "${NETKIT_ROOT}/scripts/discovery/recon.sh" "$@" ;;
+  netbox-export|netbox)
+    "${NETKIT_ROOT}/scripts/reports/netbox.sh" "$@" ;;
   report|all)
     "${NETKIT_ROOT}/scripts/reports/generate.sh" "$@" ;;
   *)

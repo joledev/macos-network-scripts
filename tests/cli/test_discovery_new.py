@@ -192,3 +192,37 @@ def test_devinfo_help(run_netkit):
 def test_devinfo_unknown_flag(run_netkit):
     p = run_netkit("devinfo", "--bogus")
     assert p.returncode == 2
+
+
+# ---- routes (segment discovery) ----
+def test_routes_help(run_netkit):
+    p = run_netkit("routes", "--help")
+    assert p.returncode == 0
+    assert "Usage" in p.stdout
+
+
+def test_routes_runs(run_netkit):
+    # Pure read of the routing table — should always succeed and name a segment.
+    p = run_netkit("routes", "--json")
+    assert p.returncode == 0
+    assert "directly_connected" in p.stdout
+
+
+# ---- netbox-export ----
+def test_netbox_help(run_netkit):
+    p = run_netkit("netbox-export", "--help")
+    assert p.returncode == 0
+    assert "Usage" in p.stdout
+
+
+def test_netbox_csv_from_input(run_netkit, tmp_output_dir):
+    import json
+    recon = {"meta": {"generated_at": "20260101-000000"}, "subnet": "10.0.0.0/24",
+             "gateway": "10.0.0.1",
+             "hosts": [{"ip": "10.0.0.1", "role": "router/gateway", "display": "GW"}]}
+    f = tmp_output_dir / "recon-20260101-000000.json"
+    f.write_text(json.dumps(recon))
+    p = run_netkit("netbox-export", "--csv", "--input", str(f))
+    assert p.returncode == 0
+    assert "ips.csv" in p.stdout
+    assert any(x.name.endswith("-ips.csv") for x in tmp_output_dir.iterdir())
