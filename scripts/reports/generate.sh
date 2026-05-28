@@ -432,9 +432,23 @@ if _bbg in ("C", "D", "F"):
     recs.append(f"Bufferbloat grade {_bbg} (+{_st.get('bufferbloat_ms','?')} ms under load) — "
                 f"enable SQM/QoS (cake or fq_codel) on the router, capped just below the line rate.")
 # Wi-Fi still on WPA2 without WPA3.
-_sec = (data.get("wifi", {}) or {}).get("current", {}).get("security", "") or ""
+_wifi = data.get("wifi", {}) or {}
+_sec = (_wifi.get("current", {}) or {}).get("security", "") or ""
 if "WPA2" in _sec and "WPA3" not in _sec:
     recs.append(f"Wi-Fi is using {_sec} (no WPA3) — enable WPA3 or WPA2/WPA3 mixed mode on the router.")
+# 2.4GHz APs on overlapping channels (anything but 1/6/11 overlaps its neighbors).
+_ch24 = []
+for _ch, _ in (((_wifi.get("survey") or {}).get("channels")) or {}).items():
+    try:
+        _n = int(_ch)
+    except (ValueError, TypeError):
+        continue
+    if 1 <= _n <= 14 and _n not in (1, 6, 11):
+        _ch24.append(_n)
+if _ch24:
+    _r24 = (_wifi.get("survey") or {}).get("recommend_2ghz_channel")
+    recs.append(f"2.4GHz in use on overlapping channel(s) {sorted(set(_ch24))} — switch to 1, 6 or 11"
+                + (f" (least crowded here: {_r24})" if _r24 else "") + " to avoid co-channel interference.")
 
 out.append("## Recommendations\n")
 if recs:

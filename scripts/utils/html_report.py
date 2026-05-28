@@ -467,6 +467,19 @@ def render(report: dict, *, brand: str = "Network Diagnostic Report") -> str:
     sec = (wf.get("current") or {}).get("security", "") or ""
     if "WPA2" in sec and "WPA3" not in sec:
         recs.append(f"Wi-Fi is using {_esc(sec)} (no WPA3) — enable WPA3 or WPA2/WPA3 mixed mode on the router.")
+    # 2.4GHz APs on overlapping channels (anything but 1/6/11 overlaps neighbors).
+    ch24 = []
+    for ch, _ in (((wf.get("survey") or {}).get("channels")) or {}).items():
+        try:
+            n = int(ch)
+        except (ValueError, TypeError):
+            continue
+        if 1 <= n <= 14 and n not in (1, 6, 11):
+            ch24.append(n)
+    if ch24:
+        r24 = (wf.get("survey") or {}).get("recommend_2ghz_channel")
+        recs.append(f"2.4GHz in use on overlapping channel(s) {sorted(set(ch24))} — switch to 1, 6 or 11"
+                    + (f" (least crowded here: {_esc(r24)})" if r24 else "") + " to avoid co-channel interference.")
     recs_html = (
         '<ul class="recs">' + "".join(f"<li>{r}</li>" for r in recs) + '</ul>'
         if recs else '<p style="color:var(--muted)">No issues detected at the configured thresholds.</p>'
