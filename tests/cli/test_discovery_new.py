@@ -162,3 +162,21 @@ def test_dhcp_dry_run(run_netkit):
 def test_dhcp_rejects_bad_duration(run_netkit):
     p = run_netkit("dhcp", "--duration", "2")
     assert p.returncode == 2
+
+
+# ---- omada (TP-Link Omada/EAP discovery) ----
+def test_omada_help(run_netkit):
+    p = run_netkit("omada", "--help")
+    assert p.returncode == 0
+    assert "Usage" in p.stdout
+
+
+def test_omada_dry_run(run_netkit):
+    p = run_netkit("omada", "--dry-run")
+    assert p.returncode == 0
+    assert "no traffic sent" in p.stderr.lower()
+
+
+def test_omada_rejects_bad_duration(run_netkit):
+    p = run_netkit("omada", "--duration", "1")
+    assert p.returncode == 2
