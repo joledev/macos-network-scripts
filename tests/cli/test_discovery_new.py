@@ -126,3 +126,21 @@ def test_vendorscan_dry_run(run_netkit):
 def test_vendorscan_rejects_bad_duration(run_netkit):
     p = run_netkit("vendorscan", "--duration", "99")
     assert p.returncode == 2
+
+
+# ---- lldp (root-gated capture) ----
+def test_lldp_help(run_netkit):
+    p = run_netkit("lldp", "--help")
+    assert p.returncode == 0
+    assert "Usage" in p.stdout
+
+
+def test_lldp_dry_run(run_netkit):
+    p = run_netkit("lldp", "--dry-run")
+    assert p.returncode == 0
+    assert "no capture run" in p.stderr.lower()
+
+
+def test_lldp_rejects_bad_duration(run_netkit):
+    p = run_netkit("lldp", "--duration", "3")
+    assert p.returncode == 2

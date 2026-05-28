@@ -12,6 +12,7 @@
 #   wsd                   WS-Discovery (Windows hosts, printers, scanners)
 #   ndp                   IPv6 neighbors (hosts ARP/IPv4 cannot see)
 #   vendorscan            Vendor probes (TP-Link Kasa/Tapo, MikroTik MNDP)
+#   lldp                  LLDP/CDP capture → switch/port/VLAN (needs --allow-raw)
 #   dns                   Show DNS resolvers and per-service config
 #   mdns [--duration N]   Browse Bonjour / mDNS services (model from TXT)
 #   topology [--active]   Map local topology; supports --mermaid output
@@ -61,7 +62,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,55p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -106,6 +107,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/discovery/ndp.sh" "$@" ;;
   vendorscan|vendor)
     "${NETKIT_ROOT}/scripts/discovery/vendorscan.sh" "$@" ;;
+  lldp|cdp)
+    "${NETKIT_ROOT}/scripts/discovery/lldp.sh" "$@" ;;
   dns)
     "${NETKIT_ROOT}/scripts/discovery/dns.sh" "$@" ;;
   mdns|bonjour)

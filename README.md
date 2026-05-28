@@ -73,6 +73,7 @@ Reports land under `output/`:
 ./bin/netkit wsd                   WS-Discovery (Windows hosts, printers, scanners)
 ./bin/netkit ndp                   IPv6 neighbors (hosts ARP/IPv4 cannot see)
 ./bin/netkit vendorscan            Vendor probes (TP-Link Kasa/Tapo, MikroTik MNDP)
+./bin/netkit lldp --allow-raw      LLDP/CDP capture -> switch/port/VLAN topology
 ./bin/netkit dns                   DNS resolver and per-service config
 ./bin/netkit mdns [--duration N]   Browse Bonjour / mDNS services
 ./bin/netkit topology [--mermaid]  Topology map
