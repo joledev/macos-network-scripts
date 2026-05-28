@@ -300,6 +300,11 @@ function detail(rec){{
   if(rec.wsd){{
     h += `<div class="sec"><b>WS-Discovery</b><br>${{esc(rec.wsd.hint||'')}} <span class="muted">${{esc(rec.wsd.types||'')}}</span></div>`;
   }}
+  if(rec.vendor_proto){{
+    h += '<div class="sec"><b>Vendor protocol</b><div class="kv">';
+    for(const [k,v] of Object.entries(rec.vendor_proto)) h += row(k, esc(v));
+    h += '</div></div>';
+  }}
   if(rec.ipv6 && rec.ipv6.length){{
     h += '<div class="sec"><b>IPv6</b><br>' + rec.ipv6.map(a=>`<code>${{esc(a)}}</code>`).join('<br>') + '</div>';
   }}

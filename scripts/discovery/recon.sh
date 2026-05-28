@@ -138,6 +138,7 @@ run_one "ssdp"       "$TMP_DIR/ssdp.json"       '{"devices":[]}' "${SCRIPT_DIR}/
 run_one "ubnt"       "$TMP_DIR/ubnt.json"       '{"devices":[]}' "${SCRIPT_DIR}/ubnt.sh" --json
 run_one "mdns"       "$TMP_DIR/mdns.json"       '{"instances":[]}' "${SCRIPT_DIR}/mdns.sh" --json --duration 5
 run_one "wsd"        "$TMP_DIR/wsd.json"        '{"devices":[]}' "${SCRIPT_DIR}/wsd.sh" --json
+run_one "vendor"     "$TMP_DIR/vendor.json"     '{"devices":[]}' "${SCRIPT_DIR}/vendorscan.sh" --json
 run_one "ndp"        "$TMP_DIR/ndp.json"        '{"neighbors":[]}' "${SCRIPT_DIR}/ndp.sh" --json
 [[ -n "$IFACE" ]] && run_one "ndp" "$TMP_DIR/ndp.json" '{"neighbors":[]}' "${SCRIPT_DIR}/ndp.sh" --json --interface "$IFACE"
 if [[ -n "$HOSTS_CSV" ]]; then
@@ -182,6 +183,7 @@ ubnt_mod  = load("ubnt")
 mdns_mod  = load("mdns")
 nb_mod    = load("netbios")
 wsd_mod   = load("wsd")
+vendor_mod = load("vendor")
 ndp_mod   = load("ndp")
 wifi_mod  = load("wifi")
 ifs_mod   = load("interfaces")
@@ -233,6 +235,7 @@ mdns_by_ip = {ip: ident for ip, (s, ident) in mdns_by_ip.items()}
 
 nb_by_ip = {h["ip"]: h for h in nb_mod.get("hosts", []) if h.get("ip")}
 wsd_by_ip = {d["ip"]: d for d in wsd_mod.get("devices", []) if d.get("ip")}
+vendor_by_ip = {d["ip"]: d for d in vendor_mod.get("devices", []) if d.get("ip")}
 ndp_by_mac = {}
 for n in ndp_mod.get("neighbors", []):
     if n.get("mac"):
@@ -345,6 +348,12 @@ for ip, rec in merged.items():
         wd = wsd_by_ip[ip]
         rec["wsd"] = {k: wd.get(k) for k in ("hint", "types") if wd.get(k)}
         rec["sources"].append("wsd")
+    if ip in vendor_by_ip:
+        vd = vendor_by_ip[ip]
+        rec["vendor_proto"] = {k: vd.get(k) for k in
+                               ("protocol", "model", "name", "hw_ver", "sw_ver",
+                                "version", "platform", "board") if vd.get(k)}
+        rec["sources"].append(vd.get("protocol", "vendor"))
     if mac and mac in ndp_by_mac:
         rec["ipv6"] = ndp_by_mac[mac]
         rec["sources"].append("ipv6")
@@ -355,9 +364,11 @@ def best_name(rec):
     md = rec.get("mdns") or {}
     sd = rec.get("ssdp") or {}
     ub = rec.get("ubnt") or {}
+    vp = rec.get("vendor_proto") or {}
     for cand in (rec.get("known_name"), nb.get("hostname"), md.get("friendly_name"),
-                 sd.get("friendly_name"), md.get("model_name"), ub.get("model_full"),
-                 ub.get("model"), sd.get("model_name"), rec.get("rdns")):
+                 sd.get("friendly_name"), vp.get("name"), md.get("model_name"),
+                 ub.get("model_full"), ub.get("model"), sd.get("model_name"),
+                 rec.get("rdns")):
         if cand:
             return cand
     return ""
@@ -370,9 +381,10 @@ for rec in merged.values():
     md = rec.get("mdns") or {}
     sd = rec.get("ssdp") or {}
     ub = rec.get("ubnt") or {}
+    vp = rec.get("vendor_proto") or {}
     manu = md.get("manufacturer") or sd.get("manufacturer") or ""
     model = (md.get("model_name") or md.get("model") or sd.get("model_name")
-             or ub.get("model_full") or ub.get("model") or "")
+             or ub.get("model_full") or ub.get("model") or vp.get("model") or "")
     ident = f"{manu} {model}".strip()
     if ident:
         rec["identity"] = ident
