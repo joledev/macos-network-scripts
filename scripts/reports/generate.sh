@@ -21,6 +21,10 @@ STDOUT_FMT=""
 ALLOW_PARTIAL=0
 USE_ARPSCAN=0
 REDACT="none"
+WITH_SPEEDTEST=0
+WITH_STARLINK=0
+WITH_WIFI=0
+WITH_CAMERAS=0
 
 while (( $# )); do
   case "$1" in
@@ -32,6 +36,15 @@ while (( $# )); do
     --md)   STDOUT_FMT="md"; shift ;;
     --text) STDOUT_FMT="text"; shift ;;
     --allow-partial) ALLOW_PARTIAL=1; shift ;;
+    --with-speedtest) WITH_SPEEDTEST=1; shift ;;
+    --with-starlink)  WITH_STARLINK=1; shift ;;
+    --with-wifi)      WITH_WIFI=1; shift ;;
+    --with-cameras)   WITH_CAMERAS=1; shift ;;
+    --full)
+      # Everything that's safe to run unattended on an owned network.
+      ACTIVE=1; INCLUDE_TRACE=1
+      WITH_SPEEDTEST=1; WITH_STARLINK=1; WITH_WIFI=1
+      shift ;;
     --redact)
       [[ -n "${2:-}" ]] || die_usage "--redact requires a level: none|redact|shareable"
       case "$2" in
@@ -122,7 +135,14 @@ if dry_run; then
   log_dry "  scripts/inventory/system.sh     --json"
   log_dry "  scripts/topology/map.sh         ${TOPO_FLAGS[*]}"
   log_dry "  scripts/topology/map.sh         ${TOPO_MMD_FLAGS[*]}"
-  log_dry "would write: output/report-<ts>.{md,json}, output/topology-<ts>.mmd"
+  (( WITH_SPEEDTEST )) && log_dry "  scripts/quality/speedtest.sh    --json"
+  (( WITH_STARLINK ))  && log_dry "  scripts/diagnostics/starlink.sh --json"
+  (( WITH_WIFI ))      && log_dry "  scripts/diagnostics/wifi.sh     --json"
+  if (( WITH_CAMERAS )); then
+    _cam_extra=""; (( ACTIVE )) && _cam_extra=" --active"
+    log_dry "  scripts/discovery/cameras.sh    --json${_cam_extra}"
+  fi
+  log_dry "would write: output/report-<ts>.{md,json,html}, output/topology-<ts>.mmd"
   log_dry "no probes executed, no files written."
   exit 0
 fi
@@ -188,7 +208,29 @@ run_module "topology"    "$TMP_DIR/topology.json"    '{}' \
 run_module "topology_mermaid" "$MMD_OUT" 'graph TD' \
   "${SCRIPT_DIR}/../topology/map.sh" "${TOPO_MMD_FLAGS[@]}"
 
+# Optional service modules (folded into the combined report when requested).
+if (( WITH_SPEEDTEST )); then
+  run_module "speedtest" "$TMP_DIR/speedtest.json" '{}' \
+    "${SCRIPT_DIR}/../quality/speedtest.sh" --json
+fi
+if (( WITH_STARLINK )); then
+  run_module "starlink" "$TMP_DIR/starlink.json" '{}' \
+    "${SCRIPT_DIR}/../diagnostics/starlink.sh" --json
+fi
+if (( WITH_WIFI )); then
+  run_module "wifi" "$TMP_DIR/wifi.json" '{}' \
+    "${SCRIPT_DIR}/../diagnostics/wifi.sh" --json
+fi
+if (( WITH_CAMERAS )); then
+  CAM_FLAGS=("--json")
+  (( ACTIVE )) && CAM_FLAGS+=("--active")
+  run_module "cameras" "$TMP_DIR/cameras.json" '{"cameras":[]}' \
+    "${SCRIPT_DIR}/../discovery/cameras.sh" "${CAM_FLAGS[@]}"
+fi
+
 # Combine all JSONs
+export NETKIT_WITH_SPEEDTEST="$WITH_SPEEDTEST" NETKIT_WITH_STARLINK="$WITH_STARLINK"
+export NETKIT_WITH_WIFI="$WITH_WIFI" NETKIT_WITH_CAMERAS="$WITH_CAMERAS"
 export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_IFACE_HINT="$IFACE"
 export NETKIT_ACTIVE="$ACTIVE" NETKIT_TRACE="$INCLUDE_TRACE"
 export NETKIT_JSON_OUT="$JSON_OUT" NETKIT_MD_OUT="$MD_OUT" NETKIT_HTML_OUT="$HTML_OUT"
@@ -241,6 +283,16 @@ report = {
     "diagnostics": load("diagnostics"),
     "topology": load("topology"),
 }
+
+# Fold in optional service modules when they were requested.
+if os.environ.get("NETKIT_WITH_SPEEDTEST") == "1":
+    report["speedtest"] = load("speedtest")
+if os.environ.get("NETKIT_WITH_STARLINK") == "1":
+    report["starlink"] = load("starlink")
+if os.environ.get("NETKIT_WITH_WIFI") == "1":
+    report["wifi"] = load("wifi")
+if os.environ.get("NETKIT_WITH_CAMERAS") == "1":
+    report["cameras"] = load("cameras")
 
 # Apply redaction BEFORE writing JSON so the MD render below sees the
 # redacted dict and stays consistent.

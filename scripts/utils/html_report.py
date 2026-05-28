@@ -359,6 +359,76 @@ def render(report: dict, *, brand: str = "Network Diagnostic Report") -> str:
             f' fields tokenized or removed.</div>'
         )
 
+    # ---- optional service sections (speedtest / starlink / wifi / cameras) ----
+    st = report.get("speedtest") or {}
+    speedtest_html = ""
+    if st and not st.get("_load_error"):
+        bb = st.get("bufferbloat_ms")
+        bb_grade = st.get("bufferbloat_grade", "?")
+        bb_kind = "ok" if bb_grade in ("A+", "A") else "warn" if bb_grade in ("B", "C") else "bad"
+        speedtest_html = (
+            '<section><h2>Internet speed (ISP)</h2><div class="kvgrid">'
+            f'<div class="k">Download / Upload</div><div>{_esc(st.get("download_mbps","?"))} / {_esc(st.get("upload_mbps","?"))} Mbps</div>'
+            f'<div class="k">Idle latency · jitter</div><div>{_esc(st.get("ping_ms","?"))} ms · {_esc(st.get("jitter_ms","?"))} ms</div>'
+            + (f'<div class="k">Bufferbloat</div><div>{_badge("grade "+bb_grade, bb_kind)} +{_esc(bb)} ms under load '
+               f'(loaded ↓{_esc(st.get("loaded_latency_download_ms","?"))} / ↑{_esc(st.get("loaded_latency_upload_ms","?"))} ms)</div>'
+               if bb is not None else "")
+            + f'<div class="k">Packet loss</div><div>{_esc(st.get("packet_loss","?"))}%</div>'
+            f'<div class="k">ISP</div><div>{_esc(st.get("isp",""))} (AS{_esc(st.get("asn","?"))})</div>'
+            f'<div class="k">External IP</div><div><code>{_esc(st.get("external_ipv4","") or st.get("external_ipv6",""))}</code></div>'
+            f'<div class="k">Test server</div><div>{_esc(st.get("server",""))}</div>'
+            '</div></section>'
+        )
+
+    sl = report.get("starlink") or {}
+    starlink_html = ""
+    if sl and not sl.get("_load_error") and (sl.get("tcp_reachable") or sl.get("hardware")):
+        obs = sl.get("obstruction") or {}
+        starlink_html = (
+            '<section><h2>Starlink dish</h2><div class="kvgrid">'
+            f'<div class="k">Hardware / Software</div><div>{_esc(sl.get("hardware","?"))} · {_esc(sl.get("software","?"))}</div>'
+            f'<div class="k">Uptime</div><div>{_esc(sl.get("uptime_s","?"))} s</div>'
+            f'<div class="k">Pop ping</div><div>{_esc(sl.get("ping_latency_ms","?"))} ms</div>'
+            f'<div class="k">SNR above noise floor</div><div>{_esc(sl.get("snr_above_noise_floor","?"))}</div>'
+            f'<div class="k">Dish aim</div><div>azimuth {_esc(sl.get("boresight_azimuth_deg","?"))}° · elevation {_esc(sl.get("boresight_elevation_deg","?"))}°</div>'
+            f'<div class="k">Dish ethernet</div><div>{_esc(sl.get("eth_speed_mbps","?"))} Mbps</div>'
+            f'<div class="k">Obstruction</div><div>currently={_esc(obs.get("currently_obstructed","?"))} · valid_s={_esc(obs.get("valid_s","?"))}</div>'
+            f'<div class="k">Bandwidth restricted</div><div>↓{_esc(sl.get("dl_restricted_reason","?"))} / ↑{_esc(sl.get("ul_restricted_reason","?"))}</div>'
+            f'<div class="k">Active alerts</div><div>{_esc(", ".join(sl.get("alerts", [])) or "none")}</div>'
+            '</div></section>'
+        )
+
+    wf = report.get("wifi") or {}
+    wifi_html = ""
+    if wf and not wf.get("_load_error"):
+        cur = wf.get("current", {}) or {}
+        rows = [[a.get("ssid", ""), a.get("phy_mode", ""), a.get("channel", ""), a.get("security", "")]
+                for a in (wf.get("nearby_aps") or [])]
+        wifi_html = (
+            '<section><h2>Wi-Fi</h2><div class="kvgrid">'
+            f'<div class="k">Connected SSID</div><div>{_esc(cur.get("ssid",""))}</div>'
+            f'<div class="k">Channel · security</div><div>{_esc(cur.get("channel",""))} · {_esc(cur.get("security",""))}</div>'
+            f'<div class="k">Signal · noise</div><div>{_esc(cur.get("signal_dbm","?"))} / {_esc(cur.get("noise_dbm","?"))} dBm</div>'
+            f'<div class="k">Tx rate</div><div>{_esc(cur.get("tx_rate_mbps","?"))} Mbps</div>'
+            f'<div class="k">Co-channel APs nearby</div><div>{_esc(wf.get("co_channel_count","?"))}</div>'
+            '</div>'
+            f'<h3 style="font-size:13px;color:var(--muted);margin:12px 0 4px">Nearby APs ({len(rows)})</h3>'
+            + _table(["SSID", "PHY", "channel", "security"], rows)
+            + '</section>'
+        )
+
+    cam = report.get("cameras") or {}
+    cameras_html = ""
+    if cam and not cam.get("_load_error"):
+        crows = [[c.get("ip", ""), c.get("vendor_hint", ""), ",".join(c.get("sources", [])),
+                  c.get("rtsp_server", "") or c.get("rtsp_realm", ""), c.get("http_server", "")]
+                 for c in (cam.get("cameras") or [])]
+        cameras_html = (
+            f'<section><h2>Camera candidates ({cam.get("count", 0)})</h2>'
+            + _table(["IP", "vendor", "sources", "RTSP", "HTTP"], crows)
+            + '</section>'
+        )
+
     # ---- recommendations (mirrors generate.sh MD logic) ----
     recs = []
     missing = [t for t, v in (inv.get("tools") or {}).items()
@@ -420,7 +490,15 @@ def render(report: dict, *, brand: str = "Network Diagnostic Report") -> str:
 
 <section><h2>Link quality</h2>{quality_html}</section>
 
+{speedtest_html}
+
+{starlink_html}
+
 {('<section><h2>Path to internet</h2>' + trace_html + '</section>') if trace_html else ''}
+
+{wifi_html}
+
+{cameras_html}
 
 <section><h2>Diagnostics</h2>{diag_html}</section>
 
