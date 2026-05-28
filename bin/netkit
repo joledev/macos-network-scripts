@@ -23,6 +23,7 @@
 #   unifi                 UniFi Controller inventory (devices, clients, WLANs)
 #   inventory             OS, hardware and installed tools
 #   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
+#   recon [--active]      One-pass discovery + interactive HTML map + mermaid
 #   report [--active]     Generate combined md/json/mermaid report under output/
 #   history [--all]       List past reports under output/ (one-line summary each)
 #   diff [A] [B]          Diff two reports (default: previous vs latest)
@@ -56,7 +57,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -132,6 +133,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/reports/history.sh" "$@" ;;
   diff)
     "${NETKIT_ROOT}/scripts/reports/diff.sh" "$@" ;;
+  recon|discover-all)
+    "${NETKIT_ROOT}/scripts/discovery/recon.sh" "$@" ;;
   report|all)
     "${NETKIT_ROOT}/scripts/reports/generate.sh" "$@" ;;
   *)

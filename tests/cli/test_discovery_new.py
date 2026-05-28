@@ -54,3 +54,21 @@ def test_duration_bounds(run_netkit, cmd, dur):
     p = run_netkit(cmd, "--duration", dur)
     assert p.returncode == 2
     assert "duration" in p.stderr.lower()
+
+
+def test_recon_help(run_netkit):
+    p = run_netkit("recon", "--help")
+    assert p.returncode == 0
+    assert "recon" in p.stdout
+
+
+def test_recon_unknown_flag(run_netkit):
+    p = run_netkit("recon", "--bogus")
+    assert p.returncode == 2
+    assert "Unknown flag" in p.stderr
+
+
+def test_recon_dry_run_runs_nothing(run_netkit, tmp_output_dir):
+    p = run_netkit("recon", "--active", "--dry-run")
+    assert p.returncode == 0
+    assert "no probes executed" in p.stderr.lower()
