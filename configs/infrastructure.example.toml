@@ -1,42 +1,119 @@
-# Non-discoverable network infrastructure — gear with no IP / no management that
-# scans can't see (unmanaged switches, patch panels, media converters, cable
-# runs, dumb APs). Declare it here and `netkit recon` injects it into the map,
-# editor, mermaid and NetBox export so the topology is COMPLETE.
+# ============================================================================
+# netkit infrastructure — BUILDING TEMPLATE
+# ----------------------------------------------------------------------------
+# Declare every NON-discoverable network component (no IP / no SNMP that a scan
+# can't see): unmanaged switches, patch panels, cable runs, dumb APs, media
+# converters, ONT/modem, UPS, etc. `netkit recon` injects these into the map,
+# editor, mermaid, .drawio and the NetBox export with REAL parenting
+# (host -> access switch -> distribution -> core -> router).
 #
-# Copy to configs/infrastructure.toml (gitignored) and fill in.
+# Copy to configs/infrastructure.toml (gitignored) and fill it in floor by floor.
 #
-# Fields:
-#   id       unique slug (referenced by other nodes' uplink)
+# FIELDS
+#   id       unique slug, referenced by other nodes' `uplink` — keep it stable
 #   name     label shown on the map
 #   type     switch | patch-panel | router | ap | modem | media-converter | other
-#   model    e.g. "TP-Link TL-SF1005D"
-#   speed    e.g. "10/100 Mbps"   (optional, shown on the node)
-#   location room / floor / rack  (optional → NetBox site/location)
-#   uplink   what it connects upstream to: a gateway/host IP, or another node id
-#   ports    list of host IPs that hang off this device (re-parents them on the map)
+#   model    e.g. "TP-Link TL-SG1016D"
+#   speed    e.g. "1 Gbps"  /  "10/100 Mbps"
+#   location "Piso 2 / Rack B"   (flows to NetBox site/location)
+#   uplink   what it connects UP to: a gateway/host IP, or ANOTHER node id
+#   ports    list of host IPs hanging off this node (re-parents them on the map)
 #   notes    free text
+#
+# HOW TO BUILD THE TREE
+#   Use `uplink` to chain upward:
+#     router (IP)  <-  core-sw  <-  pN-dist  <-  pN-swX  <-  endpoints(ports)
+#   Discovered hosts (with an IP) keep getting LABELLED in known-hosts.toml; list
+#   their IPs in the relevant switch's `ports` so they sit under it on the map.
+#
+#   To add a floor: copy a "PISO N" block. To add a closet: copy a switch block.
+# ============================================================================
+
+
+# ---- Building core (uplinks to the ISP router / gateway) -------------------
+[[node]]
+id       = "core-sw"
+name     = "Core / MDF switch"
+type     = "switch"
+model    = ""
+speed    = "1 Gbps"
+location = "MDF / Rack principal"
+uplink   = "192.168.1.1"          # the building's router/gateway IP
+ports    = []
+notes    = "Switch troncal del edificio"
+
+
+# ============================ PISO 1 ========================================
+[[node]]
+id       = "p1-dist"
+name     = "Distribución Piso 1"
+type     = "switch"
+speed    = "1 Gbps"
+location = "Piso 1 / Rack A"
+uplink   = "core-sw"
+ports    = []
 
 [[node]]
-id       = "sw-sala"
+id       = "p1-patch-a"
+name     = "Patch panel Piso 1 - Rack A"
+type     = "patch-panel"
+location = "Piso 1 / Rack A"
+uplink   = "p1-dist"
+
+# --- Access switch (REAL example — the one your MacBook plugs into) ---
+[[node]]
+id       = "p1-sw-sala"
 name     = "Switch sala"
 type     = "switch"
 model    = "TP-Link TL-SF1005D"
 speed    = "10/100 Mbps"
-location = "Sala principal"
-uplink   = "192.168.1.1"          # connects up to the Starlink router
-# Hosts hanging off this switch (re-parented under it on the map). Includes both
-# the MacBook and the Mercusys Halo mesh node found plugged into it:
-ports    = ["192.168.1.21", "192.168.1.69"]
-notes    = "5-port Fast Ethernet, unmanaged — caps en7 at 100 Mbps"
+location = "Piso 1 / Sala principal"
+uplink   = "p1-dist"               # or "192.168.1.1" if it hangs off the router
+ports    = ["192.168.1.21", "192.168.1.69"]   # MacBook + Mercusys Halo H50 (AP)
+notes    = "5-port Fast Ethernet, unmanaged — caps en7 at 100 Mbps. Replace with gigabit."
 
-# Discovered hosts (with an IP) like the Halo mesh AP get LABELLED in
-# configs/known-hosts.toml instead — e.g.:
-#   [[host]]  ip = "192.168.1.69"  name = "Mercusys Halo H50 (AP)"  role = "ap/switch/router"
-# and listed in a switch's `ports` above so they sit under it on the map.
+
+# ============================ PISO 2 (copy me per floor) ====================
+[[node]]
+id       = "p2-dist"
+name     = "Distribución Piso 2"
+type     = "switch"
+speed    = "1 Gbps"
+location = "Piso 2 / Rack B"
+uplink   = "core-sw"
+ports    = []
 
 # [[node]]
-# id     = "patch-piso2"
-# name   = "Patch panel piso 2"
-# type   = "patch-panel"
-# location = "Rack piso 2"
-# uplink = "sw-core"               # chains to another infra node by id
+# id       = "p2-patch-b"
+# name     = "Patch panel Piso 2 - Rack B"
+# type     = "patch-panel"
+# location = "Piso 2 / Rack B"
+# uplink   = "p2-dist"
+
+# [[node]]
+# id       = "p2-sw-101"
+# name     = "Switch acceso 2-101"
+# type     = "switch"
+# model    = ""
+# speed    = ""
+# location = "Piso 2 / Oficina 201"
+# uplink   = "p2-dist"
+# ports    = []                    # ["10.0.2.x", "10.0.2.y", ...]
+
+
+# ============================ Other gear ====================================
+# Dumb / bridged AP (no management):
+# [[node]]
+# id="ap-lobby"  -- (one field per line)
+# name     = "AP lobby"
+# type     = "ap"
+# location = "Piso 1 / Lobby"
+# uplink   = "p1-dist"
+
+# Fiber media converter / ONT chain example:
+# [[node]]
+# id       = "ont"
+# name     = "ONT fibra ISP"
+# type     = "modem"
+# location = "MDF"
+# uplink   = "192.168.1.1"
