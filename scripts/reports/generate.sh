@@ -416,6 +416,25 @@ if not diagnostics_failed and not ghttps.get("ok"):
     recs.append("GitHub HTTPS failed — check VPN, proxy, or DNS for github.com.")
 if diagnostics_failed:
     recs.append("Diagnostics module failed — connectivity checks were not run. Investigate scripts/diagnostics/dev.sh.")
+# Active interface linked below its rated capacity (bad cable or 100M port).
+for r in ifs.get("interfaces", []):
+    if r.get("status") != "active":
+        continue
+    link = r.get("link_mbps"); cap = r.get("max_supported_mbps")
+    if link and cap and link < cap:
+        recs.append(f"Interface `{r.get('device','?')}` ({r.get('hardware_port','')}) negotiated "
+                    f"{link} Mbps but supports up to {cap} Mbps — check the cable (use Cat5e/Cat6) "
+                    f"and the switch/router port.")
+# Bufferbloat: latency spikes under load hurt calls/gaming → suggest SQM/QoS.
+_st = data.get("speedtest", {}) or {}
+_bbg = _st.get("bufferbloat_grade")
+if _bbg in ("C", "D", "F"):
+    recs.append(f"Bufferbloat grade {_bbg} (+{_st.get('bufferbloat_ms','?')} ms under load) — "
+                f"enable SQM/QoS (cake or fq_codel) on the router, capped just below the line rate.")
+# Wi-Fi still on WPA2 without WPA3.
+_sec = (data.get("wifi", {}) or {}).get("current", {}).get("security", "") or ""
+if "WPA2" in _sec and "WPA3" not in _sec:
+    recs.append(f"Wi-Fi is using {_sec} (no WPA3) — enable WPA3 or WPA2/WPA3 mixed mode on the router.")
 
 out.append("## Recommendations\n")
 if recs:

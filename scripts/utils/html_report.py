@@ -448,6 +448,25 @@ def render(report: dict, *, brand: str = "Network Diagnostic Report") -> str:
         recs.append("GitHub HTTPS failed — check VPN, proxy, or DNS for github.com.")
     if diagnostics_failed:
         recs.append("Diagnostics module failed — connectivity checks not run.")
+    # Active interface linked below its rated capacity (bad cable or 100M port).
+    for r in (ifs.get("interfaces") or []):
+        if r.get("status") != "active":
+            continue
+        link = r.get("link_mbps")
+        cap = r.get("max_supported_mbps")
+        if link and cap and link < cap:
+            recs.append(f"Interface <code>{_esc(r.get('device','?'))}</code> "
+                        f"({_esc(r.get('hardware_port',''))}) negotiated {_esc(link)} Mbps but supports "
+                        f"up to {_esc(cap)} Mbps — check the cable (use Cat5e/Cat6) and the switch/router port.")
+    # Bufferbloat: latency spikes under load hurt calls/gaming → suggest SQM/QoS.
+    bbg = st.get("bufferbloat_grade")
+    if bbg in ("C", "D", "F"):
+        recs.append(f"Bufferbloat grade {_esc(bbg)} (+{_esc(st.get('bufferbloat_ms','?'))} ms under load) — "
+                    f"enable SQM/QoS (cake or fq_codel) on the router, capped just below the line rate.")
+    # Wi-Fi still on WPA2 without WPA3.
+    sec = (wf.get("current") or {}).get("security", "") or ""
+    if "WPA2" in sec and "WPA3" not in sec:
+        recs.append(f"Wi-Fi is using {_esc(sec)} (no WPA3) — enable WPA3 or WPA2/WPA3 mixed mode on the router.")
     recs_html = (
         '<ul class="recs">' + "".join(f"<li>{r}</li>" for r in recs) + '</ul>'
         if recs else '<p style="color:var(--muted)">No issues detected at the configured thresholds.</p>'

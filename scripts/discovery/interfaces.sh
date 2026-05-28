@@ -31,13 +31,25 @@ done
 # Build JSON via python to keep escaping correct
 emit_json() {
   python3 - <<'PY'
-import json, os, subprocess, sys
+import json, os, re, subprocess, sys
 
 def sh(cmd):
     try:
         return subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL).strip()
     except subprocess.CalledProcessError:
         return ""
+
+def media_to_mbps(media):
+    """Parse a macOS media string ("100baseTX", "2500Base-T", "10Gbase-T") to Mbps."""
+    if not media:
+        return None
+    m = re.search(r"(\d+)\s*(G)?base", media, re.IGNORECASE)
+    if not m:
+        return None
+    n = int(m.group(1))
+    if m.group(2):  # "10Gbase-T" style → value is in Gbps
+        n *= 1000
+    return n
 
 # Parse hardware ports
 hp_map = {}
@@ -100,6 +112,15 @@ def iface_media(dev):
             return ln.split(":", 1)[1].strip()
     return ""
 
+def iface_max_supported_mbps(dev):
+    """Highest link rate the adapter advertises, from networksetup -listvalidmedia."""
+    best = None
+    for ln in sh(f"networksetup -listvalidmedia {dev}").splitlines():
+        v = media_to_mbps(ln)
+        if v and (best is None or v > best):
+            best = v
+    return best
+
 def classify(hwport):
     hp = hwport.lower()
     if "wi-fi" in hp or "airport" in hp: return "wifi"
@@ -111,6 +132,7 @@ def classify(hwport):
 rows = []
 for dev, hwport in hp_map.items():
     ip = iface_ipv4(dev)
+    media = iface_media(dev)
     rows.append({
         "device": dev,
         "hardware_port": hwport,
@@ -119,7 +141,9 @@ for dev, hwport in hp_map.items():
         "ipv4": ip,
         "netmask_cidr": hex_to_cidr(iface_netmask_hex(dev)) if ip else "",
         "status": iface_status(dev),
-        "media": iface_media(dev),
+        "media": media,
+        "link_mbps": media_to_mbps(media),
+        "max_supported_mbps": iface_max_supported_mbps(dev),
         "is_default_route": dev == default_iface,
     })
 
