@@ -131,8 +131,9 @@ def render(report: dict, *, brand: str = "Network map") -> str:
     svg_edges = []
     for e in edges:
         a, b = e["a"], e["b"]
-        x1, y1 = a["x"], a["y"] + box_h / 2
-        x2, y2 = b["x"], b["y"] - box_h / 2
+        # Center-to-center anchoring so edges follow nodes when dragged.
+        x1, y1 = a["x"], a["y"]
+        x2, y2 = b["x"], b["y"]
         mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2
         svg_edges.append(
             f'<line class="edge {e["cls"]}" x1="{x1:.0f}" y1="{y1:.0f}" '
@@ -150,6 +151,7 @@ def render(report: dict, *, brand: str = "Network map") -> str:
         rec_json = _esc(json.dumps(n.get("rec", {"ip": n["title"], "role": n["role"]})))
         svg_nodes.append(
             f'<g class="node" data-id="{n["id"]}" data-role="{_esc(n["role"])}" '
+            f'data-cx="{n["x"]:.0f}" data-cy="{n["y"]:.0f}" '
             f'data-rec="{rec_json}" transform="translate({x:.0f},{yb:.0f})">'
             f'<rect width="{box_w}" height="{box_h}" rx="8" '
             f'style="fill:{n["color"]}"/>'
@@ -197,7 +199,8 @@ svg{{display:block}}
 .edge.hl{{stroke:#1f6feb;stroke-width:3}}
 .edgelabel{{font-size:10px;fill:var(--muted)}}
 .edgelabel.slow{{fill:#cf222e;font-weight:700}}
-.node{{cursor:pointer}}
+.node{{cursor:grab}}
+.node.dragging{{cursor:grabbing}}
 .node rect{{stroke:rgba(0,0,0,.25);stroke-width:1;transition:opacity .1s}}
 .node.dim{{opacity:.18}}
 .node.sel rect{{stroke:#1a1a1a;stroke-width:3}}
@@ -232,7 +235,7 @@ padding:1px 6px;margin:2px 2px 0 0;font-size:11px;font-family:SFMono-Regular,Men
     </svg>
   </div>
   <div id="detail"><p class="muted">Hover or click a node to inspect it.
-  Click a legend chip to filter by role.</p></div>
+  Drag any node to reposition it (edges follow). Click a legend chip to filter by role.</p></div>
 </div>
 <script>
 const DATA = {data_js};
@@ -326,9 +329,48 @@ function setSel(node){{
   detail(JSON.parse(node.dataset.rec));
 }}
 
+// ---- drag to reposition (edges follow) ----
+const svg = document.querySelector('svg');
+const BOX = {{w:{box_w}, h:{box_h}}};
+let drag = null, suppressClick = false;
+
+function svgPoint(evt){{
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  const m = svg.getScreenCTM();
+  return m ? pt.matrixTransform(m.inverse()) : {{x:evt.clientX, y:evt.clientY}};
+}}
+function moveNode(n, cx, cy){{
+  n.dataset.cx = cx; n.dataset.cy = cy;
+  n.setAttribute('transform', `translate(${{cx - BOX.w/2}},${{cy - BOX.h/2}})`);
+  const id = n.dataset.id;
+  edges.forEach(ed=>{{
+    if(ed.dataset.a===id){{ ed.setAttribute('x1', cx); ed.setAttribute('y1', cy); }}
+    if(ed.dataset.b===id){{ ed.setAttribute('x2', cx); ed.setAttribute('y2', cy); }}
+  }});
+}}
+
 nodes.forEach(n=>{{
-  n.addEventListener('mouseenter',()=>{{if(!$('.node.sel'))detail(JSON.parse(n.dataset.rec));}});
-  n.addEventListener('click',()=>setSel(n));
+  n.addEventListener('mouseenter',()=>{{if(!$('.node.sel') && !drag)detail(JSON.parse(n.dataset.rec));}});
+  n.addEventListener('click',()=>{{ if(suppressClick){{suppressClick=false; return;}} setSel(n); }});
+  n.addEventListener('mousedown',e=>{{
+    e.preventDefault();
+    const p = svgPoint(e);
+    drag = {{node:n, offx:p.x - parseFloat(n.dataset.cx), offy:p.y - parseFloat(n.dataset.cy), moved:false}};
+    n.classList.add('dragging');
+  }});
+}});
+window.addEventListener('mousemove',e=>{{
+  if(!drag) return;
+  const p = svgPoint(e);
+  drag.moved = true;
+  moveNode(drag.node, p.x - drag.offx, p.y - drag.offy);
+}});
+window.addEventListener('mouseup',()=>{{
+  if(!drag) return;
+  drag.node.classList.remove('dragging');
+  if(drag.moved) suppressClick = true;
+  drag = null;
 }});
 
 function applyFilters(){{
