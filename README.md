@@ -87,6 +87,7 @@ Reports land under `output/`:
 ./bin/netkit wifi [--survey]       RSSI, channel, security + nearby APs; --survey = passive RF site survey
 ./bin/netkit cameras               IP camera discovery (ONVIF + RTSP)
 ./bin/netkit starlink              Starlink dish status (needs grpcurl)
+./bin/netkit starlink-clients      ALL devices the Starlink router knows (name/band/mesh)
 ./bin/netkit cert-check --host H   TLS audit for arbitrary host:port
 ./bin/netkit snmp --host H         Read-only SNMP walk (needs net-snmp)
 ./bin/netkit unifi                 UniFi Controller inventory (env-based auth)
@@ -95,6 +96,8 @@ Reports land under `output/`:
 ./bin/netkit inventory             OS / hardware / tools
 ./bin/netkit recon [--active]      One-pass discovery → JSON + mermaid + interactive
                                    map + vis-network editor (.editor.html) + .drawio
+                                   (--arpscan catch ICMP-silent hosts; --history fold in past devices)
+./bin/netkit devices               Persistent device ledger (union of all scans over time)
 ./bin/netkit report                Combined report (default safe mode)
 ./bin/netkit history [--all]       List past reports under output/
 ./bin/netkit diff [A] [B]          Diff two reports (default: previous vs latest)
@@ -154,6 +157,22 @@ Key environment variables:
 - [`docs/mcp-and-claude-code.md`](docs/mcp-and-claude-code.md) — using the toolkit with Claude Code / MCP servers
 - [`docs/workflows.md`](docs/workflows.md) — recommended LLM workflows
 - [`docs/command-safety.md`](docs/command-safety.md) — allowlist / denylist of commands
+
+## Seeing every device (not just what answers right now)
+
+A single scan only sees what responds to ARP/ping at that instant — phones
+sleep, IoT ignores ICMP, devices roam. Three features close the gap:
+
+- **`netkit starlink-clients`** queries the Starlink router's gRPC API (read-only,
+  anonymous) for its full client list. This is the most complete source: it
+  includes devices the sweep missed, each client's band (ethernet/2.4/5 GHz),
+  per-client RSSI, and the node it associates with (`recon` uses that
+  `upstreamMacAddress` to draw the *real* mesh topology, not a guess).
+- **`recon --arpscan`** (needs `--allow-raw`/sudo) ARP-probes every address,
+  catching hosts that answer ARP but drop ICMP.
+- **`netkit devices`** prints a persistent ledger — the union of every host seen
+  across all `recon` runs, with first/last-seen — so transient devices aren't
+  lost. `recon --history` folds those past-but-absent devices back into the map.
 
 ## Known hosts (friendly names)
 

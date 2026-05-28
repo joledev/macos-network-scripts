@@ -27,6 +27,7 @@
 #   wifi                  Wi-Fi RSSI, channel, security + nearby APs scan
 #   cameras               IP camera discovery (ONVIF + RTSP + HTTP fingerprint)
 #   starlink              Starlink dish status via gRPC API
+#   starlink-clients      ALL devices the Starlink router knows (name/band/mesh)
 #   cert-check            TLS audit for arbitrary host:port (chain, versions, HSTS)
 #   snmp                  Read-only SNMP audit (system, interfaces, ARP, bridge FDB)
 #   unifi                 UniFi Controller inventory (devices, clients, WLANs)
@@ -36,6 +37,7 @@
 #   recog fetch [--force] Fetch Rapid7 Recog DB (banner → vendor/product/device)
 #   fleet <action>        Run a per-host audit across many nodes in parallel
 #   recon [--active]      One-pass discovery + interactive HTML map + mermaid
+#   devices               Persistent device ledger (union of all scans over time)
 #   netbox-export         Export recon inventory to NetBox (CSV, or --push via API)
 #   report [--active]     Generate combined md/json/mermaid report under output/
 #   history [--all]       List past reports under output/ (one-line summary each)
@@ -70,7 +72,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,65p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -143,6 +145,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/diagnostics/wifi.sh" "$@" ;;
   starlink|dishy)
     "${NETKIT_ROOT}/scripts/diagnostics/starlink.sh" "$@" ;;
+  starlink-clients|sl-clients)
+    "${NETKIT_ROOT}/scripts/discovery/starlink_clients.sh" "$@" ;;
   cert-check|cert|tls)
     "${NETKIT_ROOT}/scripts/diagnostics/cert_check.sh" "$@" ;;
   snmp)
@@ -177,6 +181,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/reports/diff.sh" "$@" ;;
   recon|discover-all)
     "${NETKIT_ROOT}/scripts/discovery/recon.sh" "$@" ;;
+  devices|ledger)
+    "${NETKIT_ROOT}/scripts/reports/devices.sh" "$@" ;;
   netbox-export|netbox)
     "${NETKIT_ROOT}/scripts/reports/netbox.sh" "$@" ;;
   report|all)

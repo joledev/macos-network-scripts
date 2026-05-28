@@ -249,6 +249,35 @@ Requires `brew install grpcurl`.
 ./bin/netkit starlink --host 192.168.100.1 --port 9200
 ```
 
+### `starlink-clients` (alias `sl-clients`)
+
+Queries the Starlink **router** (default gateway `:9000`, gRPC, read-only,
+anonymous) for its full client list — the most complete inventory available:
+devices that ignore ICMP, sleep or use a randomized MAC still show up, each with
+its band (ethernet / 2.4 / 5 GHz), per-client RSSI, the hostname the router
+knows, and `upstreamMacAddress` (which node it associates with → real mesh
+topology). `recon` runs this automatically and uses it to parent hosts to the
+node they're actually on. Needs `grpcurl`; no-ops gracefully elsewhere.
+
+```fish
+./bin/netkit starlink-clients
+./bin/netkit starlink-clients --md
+./bin/netkit starlink-clients --host 192.168.1.1 --port 9000
+```
+
+### `devices` (alias `ledger`)
+
+Prints the persistent device ledger — the union of every host seen across all
+`recon` runs (`~/.cache/netkit/inventory.json`), with first/last-seen, seen
+count, and the IPs / names / bands observed. A snapshot misses transient
+devices; the ledger doesn't. `recon --history` folds past-but-absent devices
+back into the map.
+
+```fish
+./bin/netkit devices
+./bin/netkit devices --md > device-ledger.md
+```
+
 ### `mdns` (alias `bonjour`)
 
 Browses common Bonjour / mDNS service types on the LAN for a short window

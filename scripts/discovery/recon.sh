@@ -37,6 +37,8 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 ACTIVE=0
 AGGRESSIVE=0
 WITH_STARLINK=0
+USE_ARPSCAN=0
+HISTORY=0
 IFACE=""
 STDOUT_FMT=""
 SUBNETS_CSV=""
@@ -46,6 +48,8 @@ while (( $# )); do
   case "$1" in
     --active) ACTIVE=1; shift ;;
     --aggressive) AGGRESSIVE=1; shift ;;
+    --arpscan) USE_ARPSCAN=1; shift ;;
+    --history) HISTORY=1; shift ;;
     --with-starlink) WITH_STARLINK=1; shift ;;
     --subnets)
       [[ -n "${2:-}" ]] || die_usage "--subnets requires a comma-separated CIDR list"
@@ -142,6 +146,9 @@ run_one() {
 #    union. Remote (routed) subnets yield IPs but no MAC/vendor — L2 stops at
 #    the router; fingerprint (L3) still profiles them.
 DISC_BASE=("--json"); (( ACTIVE )) && DISC_BASE+=("--active")
+# arp-scan (needs sudo/--allow-raw) catches devices that ignore ICMP but answer
+# ARP — the discover script gates it and falls back to passive ARP if denied.
+(( USE_ARPSCAN )) && DISC_BASE+=("--arpscan")
 [[ -n "$IFACE" ]] && DISC_BASE+=("--interface" "$IFACE")
 _disc_files=()
 _i=0
@@ -221,6 +228,9 @@ else
 fi
 run_one "wifi"       "$TMP_DIR/wifi.json"       '{}' "${SCRIPT_DIR}/../diagnostics/wifi.sh" --json
 run_one "interfaces" "$TMP_DIR/interfaces.json" '{}' "${SCRIPT_DIR}/interfaces.sh" --json
+# Starlink router client list — the most complete inventory (devices ARP missed)
+# + real mesh association. No-ops gracefully on non-Starlink networks.
+run_one "starlink_clients" "$TMP_DIR/starlink_clients.json" '{"clients":[]}' "${SCRIPT_DIR}/starlink_clients.sh" --json
 if (( WITH_STARLINK )); then
   run_one "starlink" "$TMP_DIR/starlink.json" '{}' "${SCRIPT_DIR}/../diagnostics/starlink.sh" --json
 else
@@ -252,6 +262,7 @@ export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_ROOT \
        NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET" NETKIT_GW \
        NETKIT_SUBNETS="${SUBNETS_CSV:-$SUBNET}" \
        NETKIT_SWITCH_FILES="${SWITCH_FILES}" \
+       NETKIT_HISTORY="$HISTORY" \
        NETKIT_STDOUT_FMT="$STDOUT_FMT"
 
 python3 - <<'PY'
@@ -261,6 +272,7 @@ tmp = os.environ["NETKIT_TMP_DIR"]
 root = os.environ["NETKIT_ROOT"]
 sys.path.insert(0, os.path.join(root, "scripts/utils"))
 import device_models
+import oui
 
 
 def load(name):
@@ -283,6 +295,7 @@ ndp_mod   = load("ndp")
 wifi_mod  = load("wifi")
 ifs_mod   = load("interfaces")
 sl_mod    = load("starlink")
+slc_mod   = load("starlink_clients")
 
 gw = os.environ.get("NETKIT_GW", "")
 
@@ -496,6 +509,44 @@ for ip, rec in merged.items():
         rec["ipv6"] = ndp_by_mac[mac]
         rec["sources"].append("ipv6")
 
+# Overlay the Starlink router's authoritative client list. This is the most
+# complete source: it surfaces devices ARP/ping never saw, the band each one
+# uses (ethernet/2.4/5GHz), per-client RSSI, and — via upstreamMacAddress —
+# which node it associates with (the real mesh topology).
+sl_clients = slc_mod.get("clients", []) or []
+sl_gw_mac = ""
+for c in sl_clients:
+    if (c.get("role") or "").upper() == "CONTROLLER" and c.get("mac"):
+        sl_gw_mac = c["mac"].lower()
+for c in sl_clients:
+    ip = c.get("ip")
+    if not ip:
+        continue
+    rec = merged.get(ip)
+    if rec is None:                       # a client ARP/ping completely missed
+        rec = {"ip": ip, "mac": c.get("mac", ""), "sources": []}
+        if c.get("mac"):
+            rec["vendor"] = oui.lookup(c["mac"])
+            if oui.mac_kind(c["mac"]) == "random/local":
+                rec["mac_kind"] = "random/local"
+        merged[ip] = rec
+    rec.setdefault("sources", [])
+    if "starlink" not in rec["sources"]:
+        rec["sources"].append("starlink")
+    if not rec.get("mac") and c.get("mac"):
+        rec["mac"] = c["mac"]
+    rec["starlink"] = {k: c.get(k) for k in
+                       ("name", "band", "signal_dbm", "snr", "upstream_mac",
+                        "hops", "download_mb", "upload_mb") if c.get(k) is not None}
+    if c.get("band"):
+        rec["band"] = c["band"]
+    if c.get("signal_dbm") is not None:
+        rec["signal_dbm"] = c["signal_dbm"]
+    if c.get("name"):
+        rec["sl_name"] = c["name"]
+    if c.get("upstream_mac"):
+        rec["sl_upstream_mac"] = c["upstream_mac"]
+
 
 def best_name(rec):
     nb = rec.get("netbios") or {}
@@ -504,10 +555,10 @@ def best_name(rec):
     ub = rec.get("ubnt") or {}
     vp = rec.get("vendor_proto") or {}
     http_title = next((h.get("title") for h in (rec.get("http") or []) if h.get("title")), "")
-    for cand in (rec.get("known_name"), nb.get("hostname"), md.get("friendly_name"),
-                 sd.get("friendly_name"), vp.get("name"), md.get("model_name"),
-                 ub.get("model_full"), ub.get("model"), sd.get("model_name"),
-                 http_title, rec.get("rdns")):
+    for cand in (rec.get("known_name"), rec.get("sl_name"), nb.get("hostname"),
+                 md.get("friendly_name"), sd.get("friendly_name"), vp.get("name"),
+                 md.get("model_name"), ub.get("model_full"), ub.get("model"),
+                 sd.get("model_name"), http_title, rec.get("rdns")):
         if cand:
             return cand
     return ""
@@ -551,10 +602,31 @@ hosts = sorted(merged.values(),
 import infrastructure
 infra_nodes = infrastructure.load()
 _parent_of = infrastructure.host_parent_map(infra_nodes)
+
+# Resolve a Starlink upstream MAC to the node's IP, so a client parents to the
+# actual AP/mesh node it associates with (not just "everything under the gw").
+_ip_by_mac = {h["mac"].lower(): h["ip"] for h in hosts if h.get("mac") and h.get("ip")}
+
+
+def _sl_parent(h):
+    up = h.get("sl_upstream_mac")
+    if not up:
+        return None
+    if sl_gw_mac and up == sl_gw_mac:     # upstream is the router itself
+        return gw
+    nip = _ip_by_mac.get(up)
+    if nip and nip == gw:
+        return gw
+    if nip and nip != h.get("ip"):        # upstream is another node (mesh)
+        return nip
+    return gw                              # router-ish upstream with no host record
+
 for h in hosts:
-    # Parent precedence: an explicit known-hosts `uplink` (e.g. mesh node → node)
-    # > an infra node whose `ports` lists this IP > the gateway.
-    h["parent"] = h.get("known_uplink") or _parent_of.get(h.get("ip", ""), gw)
+    # Parent precedence: explicit known-hosts `uplink` > the Starlink router's
+    # real association (upstream MAC) > an infra node whose `ports` list this IP
+    # > the gateway.
+    h["parent"] = (h.get("known_uplink") or _sl_parent(h)
+                   or _parent_of.get(h.get("ip", ""), gw))
 for n in infra_nodes:
     n["parent"] = n.get("uplink") or gw   # uplink: a host/gateway IP or another node id
 
@@ -622,6 +694,32 @@ report = {
     "count": len(hosts),
     "hosts": hosts,
 }
+
+# Persist into the cross-scan device ledger (union of everything ever seen) and,
+# with --history, fold in devices seen before but absent now so the map/report
+# reflects the whole environment, not just this snapshot.
+try:
+    import inventory_db
+    ledger = inventory_db.update(hosts, os.environ["NETKIT_TS"])
+    inventory_db.save(ledger)
+    report["ledger_size"] = len(ledger)
+    if os.environ.get("NETKIT_HISTORY") == "1":
+        gone = inventory_db.absent(ledger, hosts)
+        for e in gone:
+            report["hosts"].append({
+                "ip": (e.get("ips") or [""])[0],
+                "mac": e.get("mac", ""),
+                "vendor": e.get("vendor", ""),
+                "display": (e.get("names") or [""])[0],
+                "role": e.get("role", "") or "absent",
+                "present": False,
+                "last_seen": e.get("last_seen", ""),
+                "parent": gw,
+                "sources": ["ledger"],
+            })
+        report["count"] = len(report["hosts"])
+except Exception:  # noqa: BLE001 — ledger is best-effort, never break recon
+    pass
 
 with open(os.environ["NETKIT_JSON_OUT"], "w") as f:
     json.dump(report, f, indent=2, default=str)
