@@ -144,3 +144,21 @@ def test_lldp_dry_run(run_netkit):
 def test_lldp_rejects_bad_duration(run_netkit):
     p = run_netkit("lldp", "--duration", "3")
     assert p.returncode == 2
+
+
+# ---- dhcp (root-gated capture) ----
+def test_dhcp_help(run_netkit):
+    p = run_netkit("dhcp", "--help")
+    assert p.returncode == 0
+    assert "Usage" in p.stdout
+
+
+def test_dhcp_dry_run(run_netkit):
+    p = run_netkit("dhcp", "--dry-run")
+    assert p.returncode == 0
+    assert "no capture run" in p.stderr.lower()
+
+
+def test_dhcp_rejects_bad_duration(run_netkit):
+    p = run_netkit("dhcp", "--duration", "2")
+    assert p.returncode == 2
