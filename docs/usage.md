@@ -156,6 +156,58 @@ default — override with `--community` when the client used a different
 read string. Strictly READ-ONLY: only invokes `snmpget` / `snmpwalk`,
 never `snmpset`.
 
+When the Recog DB is present (`netkit recog fetch`), the free-text
+`sysDescr` is turned into a structured `identified_as` (vendor/product/OS).
+
+### `recog fetch`
+
+Downloads the subset of Rapid7's Recog fingerprint DB that maps banners
+netkit already collects (HTTP `Server`/`<title>`/realm, SNMP `sysDescr`,
+SSH banner) to vendor / product / version / device-type, into
+`~/.cache/netkit/recog/`. `fingerprint` and `snmp` use it automatically;
+absent DB = built-in heuristics. Stdlib-only, cached 30 days.
+
+```fish
+./bin/netkit recog fetch            # ~1 MB, five XML files
+./bin/netkit recog fetch --force    # refresh now
+```
+
+### `fleet <action>`
+
+Runs one per-host audit across MANY nodes in parallel and merges the
+results. Actions: `reach` (ICMP latency/loss, built-in), `cert-check`,
+`snmp`, `fingerprint`. Host source: `--targets a,b,c`, `--from-known`
+(known-hosts.toml IPs, default), `--from-devices` (devices.toml), or
+`--subnet CIDR` (bounded by `NETKIT_MAX_HOSTS`).
+
+```fish
+./bin/netkit fleet reach --from-known
+./bin/netkit fleet cert-check --targets 192.168.1.1,192.168.1.69 --port 443
+./bin/netkit fleet snmp --from-devices --community public --md
+./bin/netkit fleet fingerprint --subnet 192.168.1.0/28 --jobs 16
+```
+
+Confirms once, then runs children with `--yes` (no per-host prompts).
+Read-only; honors `--dry-run`.
+
+### `napalm` (optional)
+
+Multi-vendor inventory of managed gear (Cisco IOS/NX-OS/IOS-XR, Arista
+EOS, Juniper) — facts, interfaces, LLDP neighbors, ARP — pulled in
+parallel via a vendor-agnostic API. This is the ONE command with a real
+dependency; install it with `pip install -r requirements/python-optional.txt`.
+If NAPALM is absent the command explains how and exits cleanly.
+
+Reads `configs/devices.toml` entries that carry a `driver` field (see
+`configs/devices.example.toml`). Read-only: only NAPALM getters, never
+config merges/commits.
+
+```fish
+./bin/netkit napalm                                   # all managed devices
+./bin/netkit napalm --device core-switch --json
+./bin/netkit napalm --getters facts,lldp --md
+```
+
 ### `unifi` (alias `ubnt`)
 
 Pulls a full inventory from a UniFi Network Controller / Cloud Key /

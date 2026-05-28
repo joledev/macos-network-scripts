@@ -90,6 +90,8 @@ Reports land under `output/`:
 ./bin/netkit cert-check --host H   TLS audit for arbitrary host:port
 ./bin/netkit snmp --host H         Read-only SNMP walk (needs net-snmp)
 ./bin/netkit unifi                 UniFi Controller inventory (env-based auth)
+./bin/netkit napalm                Multi-vendor fleet inventory (optional NAPALM dep)
+./bin/netkit fleet <action>        Run a per-host audit across many nodes in parallel
 ./bin/netkit inventory             OS / hardware / tools
 ./bin/netkit recon [--active]      One-pass discovery → JSON + mermaid + interactive
                                    map + vis-network editor (.editor.html) + .drawio
@@ -98,6 +100,7 @@ Reports land under `output/`:
 ./bin/netkit diff [A] [B]          Diff two reports (default: previous vs latest)
 ./bin/netkit report --redact LEVEL Privacy levels: none|redact|shareable
 ./bin/netkit oui fetch             Refresh IEEE OUI cache
+./bin/netkit recog fetch           Fetch Rapid7 Recog DB (banner → vendor/product/device)
 ```
 
 Every subcommand accepts `--json`, `--md`, or `--text` (default).
@@ -167,6 +170,42 @@ See [`configs/known-hosts.example.toml`](configs/known-hosts.example.toml).
 `~/.cache/netkit/oui.txt`. After that, vendors resolve from ~40k prefixes
 instead of the ~50 built into the script. Auto-refreshes after 30 days.
 
+Randomized / locally-administered MACs (phones using private Wi-Fi MACs) are
+flagged as `(randomized MAC)` so a blank vendor is explained, not mysterious.
+
+## Device identification (Recog)
+
+`netkit recog fetch` downloads the subset of Rapid7's
+[Recog](https://github.com/rapid7/recog) fingerprint DB that maps the banners
+netkit already collects — HTTP `Server` headers, page `<title>`, auth realms,
+SNMP `sysDescr`, SSH banners — to **vendor / product / version / device-type**.
+Once fetched, `fingerprint` and `snmp` enrich every host (e.g. `lighttpd/1.4.x`
+→ a TP-Link router, `Hipcam RealServer` → an IP camera). No DB present = the
+tools fall back to their built-in heuristics. Stdlib-only; cached for 30 days.
+
+DHCP fingerprinting (`netkit dhcp`) adds an OS/device guess from the vendor
+class (deterministic) or the option-55 list (heuristic, Fingerbank-style). For
+exact option-55 matches, set `FINGERBANK_API_KEY` (opt-in, never auto-called).
+
+## Auditing many nodes at once
+
+`netkit fleet <action>` fans a per-host audit out over an inventory (or
+`--targets` / `--subnet`) with a bounded worker pool, then merges every result
+into one report:
+
+```fish
+./bin/netkit fleet reach --from-known          # ICMP latency + loss, every known host
+./bin/netkit fleet cert-check --subnet 10.0.0.0/28 --port 443
+./bin/netkit fleet snmp --from-devices --community public --md
+./bin/netkit fleet fingerprint --targets 192.168.1.1,192.168.1.69
+```
+
+It confirms once, then runs children with `--yes` (no per-host prompts), and is
+bounded by `NETKIT_MAX_HOSTS`. For **managed multi-vendor gear** (Cisco, Arista,
+Juniper) there is an optional NAPALM path — `netkit napalm` — which is the one
+command with a real dependency (`pip install -r requirements/python-optional.txt`);
+everything else stays stdlib-only.
+
 ## Roadmap
 
 - [ ] SQLite history of reports (compare deltas over time)
@@ -188,7 +227,7 @@ Run the test suite locally with:
 ```fish
 brew install shellcheck
 pipx install pytest ruff
-make test     # 48 tests (pytest)
+make test     # full pytest suite
 make lint     # shellcheck + ruff
 ```
 

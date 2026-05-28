@@ -1,0 +1,15 @@
+# OPTIONAL multi-vendor automation — NOT needed for the stdlib-only core.
+#
+# `netkit napalm` uses these to pull normalized facts/interfaces/LLDP/ARP from
+# MANY managed devices (Cisco IOS/NX-OS/IOS-XR, Arista EOS, Juniper) in one
+# pass. Everything else in netkit works without them.
+#
+#   pip install -r requirements/python-optional.txt
+#
+# NAPALM gives a vendor-agnostic API; Nornir (optional) adds threaded
+# orchestration across the inventory. netkit falls back to its own thread pool
+# when Nornir is absent, so Nornir is genuinely optional-on-optional.
+
+napalm>=4.1
+# nornir>=3.4
+# nornir-napalm>=0.5
