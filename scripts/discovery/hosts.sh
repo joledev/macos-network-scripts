@@ -301,6 +301,8 @@ for rec in hosts.values():
             rec["role"] = hit["role"]
         if hit.get("uplink"):           # declared parent: another host IP / infra id
             rec["known_uplink"] = str(hit["uplink"])
+        if hit.get("model"):            # user-pinned model (e.g. "Tapo TC40")
+            rec["known_model"] = str(hit["model"])
 
 rows = sorted(hosts.values(),
               key=lambda r: tuple(int(x) for x in r["ip"].split(".")))

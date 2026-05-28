@@ -318,7 +318,13 @@ def classify(rec):
     ]).lower()
     if rec["ip"] == gw:
         return "router/gateway"
-    if 554 in ports or "camera" in text or "hikvision" in text or "dahua" in text:
+    # Camera: RTSP/ONVIF/Tapo ports (554, 2020 ONVIF, 8554 RTSP-alt, 8800 Tapo)
+    # or a camera-specific string. Tapo/VIGI cams open RTSP only on demand, so
+    # the ONVIF deep probe (cameras --active) is what catches them reliably.
+    if ({554, 2020, 8554, 8800} & ports) or any(
+            k in text for k in ("camera", "ipcam", "onvif", "rtsp", "webcam",
+                                "netcam", "hikvision", "dahua", "reolink",
+                                "tapo", "vigi")):
         return "camera"
     if {9100, 515, 631} & ports:
         return "printer"
@@ -330,14 +336,28 @@ def classify(rec):
         return "iot/mqtt"
     if 3389 in ports:
         return "windows-host"
-    if any(k in text for k in ("ubnt", "ubiquiti", "unifi", "tpri", "tp-link",
-                               "mercusys", "aruba", "mikrotik", "openwrt", "dd-wrt")) \
+    # AP/switch/router: ONLY networking-specific brands count as a vendor
+    # signal. TP-Link / Mercusys are deliberately NOT here — they also make
+    # cameras, plugs and bulbs, all sharing the same "CN=TPRI-DEVICE" TLS cert,
+    # so vendor+cert cannot tell an AP from a camera. Genuine APs/routers are
+    # caught by the gateway check above or by stronger signals in recon
+    # (UPnP InternetGatewayDevice, Ubiquiti/Omada discovery, switch protocols).
+    if any(k in text for k in ("ubnt", "ubiquiti", "unifi", "edgeos", "edgemax",
+                               "aruba", "mikrotik", "routeros", "openwrt",
+                               "dd-wrt", "omada", "eero", "ruckus")) \
             and ({80, 443, 8080, 8443} & ports):
         return "ap/switch/router"
     if 7547 in ports:
         return "cpe/modem (TR-069)"
     if {22, 3000, 5432, 6379, 9200} & ports:
         return "server/computer"
+    # Consumer-IoT vendor (TP-Link/Mercusys/Tapo/Kasa) exposing only a generic
+    # web port with no other signal: genuinely ambiguous (camera, plug, or AP).
+    # Say so instead of guessing — pin it in known-hosts.toml to resolve.
+    if any(k in text for k in ("tp-link", "tplink", "tpri", "mercusys",
+                               "tapo", "kasa")) \
+            and ({80, 443, 8080, 8443} & ports):
+        return "tp-link device (camera/AP?)"
     if ports:
         return "host"
     return "host (no open ports)"

@@ -72,6 +72,30 @@ _APPLE_PREFIX = [
 ]
 
 
+# TP-Link camera model families. Tapo = consumer line, VIGI = business line.
+# These model codes appear in ONVIF GetDeviceInformation, app exports, or what
+# the user pins in known-hosts.toml — the OUI/TLS cert alone can't reveal them.
+_TPLINK_CAM_RE = re.compile(
+    r"\b(TC\d{2,3}[A-Z]*|C\d{3}[A-Z]{0,3}|VIGI\s?[A-Z]?\d{3,4}[A-Z]*)\b", re.I)
+
+
+def tplink_camera(code: str) -> str:
+    """Label a string that contains a TP-Link Tapo/VIGI camera model, else ''.
+
+    e.g. 'TC40' -> 'TP-Link Tapo camera (TC40)', 'C320WS' -> '... (C320WS)',
+    'VIGI C340' -> 'TP-Link VIGI camera (VIGIC340)'. Call only when the vendor
+    is already known to be TP-Link, since a bare 'Cxxx' is otherwise ambiguous.
+    """
+    if not code:
+        return ""
+    m = _TPLINK_CAM_RE.search(code)
+    if not m:
+        return ""
+    model = m.group(1).upper().replace(" ", "")
+    family = "VIGI" if model.startswith("VIGI") else "Tapo"
+    return f"TP-Link {family} camera ({model})"
+
+
 def apple_category(code: str) -> str:
     """Map an Apple machine-id (e.g. 'iPhone14,5') to its product family."""
     if not code:

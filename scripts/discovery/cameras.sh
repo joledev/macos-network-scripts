@@ -85,6 +85,7 @@ if dry_run; then
   if (( ACTIVE )); then
     log_dry "  rtsp probe : TCP 554 DESCRIBE to each LAN host"
     log_dry "  http probe : TCP 80/8000/8080/8443 GET / to each LAN host"
+    log_dry "  onvif probe: SOAP GetSystemDateAndTime/GetDeviceInformation on 2020/80/8000/8080/8899/443/8443"
     log_dry "  hosts      : ${HOSTS_CSV:-(none in arp cache; pass --hosts)}"
   else
     log_dry "  rtsp/http  : SKIPPED — pass --active to TCP-probe each host"
@@ -111,7 +112,14 @@ export NETKIT_FMT="$FORMAT" NETKIT_HOSTS_CSV="$HOSTS_CSV" \
        NETKIT_USER_AGENT="$USER_AGENT"
 
 python3 - <<'PY'
-import concurrent.futures, json, os, re, socket, sys, time, urllib.parse, uuid
+import concurrent.futures, json, os, re, socket, ssl, sys, time, uuid
+import urllib.error, urllib.request
+
+sys.path.insert(0, os.path.join(os.environ.get("NETKIT_ROOT", "."), "scripts/utils"))
+try:
+    import device_models
+except Exception:
+    device_models = None
 
 fmt    = os.environ["NETKIT_FMT"]
 hosts  = [h for h in os.environ["NETKIT_HOSTS_CSV"].split(",") if h.strip()]
@@ -210,6 +218,66 @@ def http_probe(ip: str) -> dict:
         return {"port": port, "server": server, "realm": realm, "title": title}
     return {}
 
+# ---- 4) ONVIF deep probe (GetSystemDateAndTime + GetDeviceInformation) ----
+# GetSystemDateAndTime is unauthenticated per the ONVIF spec, so it confirms a
+# camera even when RTSP is closed and WS-Discovery is silent (Tapo's case).
+# GetDeviceInformation yields model/firmware when the camera allows it (some,
+# like Tapo, require the on-device "camera account" and answer NotAuthorized —
+# we still learn it's a camera + that creds are needed).
+ONVIF_TARGETS = [(2020, False), (80, False), (8000, False), (8080, False),
+                 (8899, False), (443, True), (8443, True)]
+ONVIF_PATHS = ["/onvif/device_service", "/onvif/device", "/onvif/services"]
+
+
+def _soap(body: str) -> bytes:
+    return ('<?xml version="1.0" encoding="UTF-8"?>'
+            '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">'
+            '<s:Body xmlns:tds="http://www.onvif.org/ver10/device/wsdl">'
+            f'{body}</s:Body></s:Envelope>').encode()
+
+
+def _onvif_post(ip, port, tls, path, body, timeout=2.0) -> str:
+    url = f"{'https' if tls else 'http'}://{ip}:{port}{path}"
+    req = urllib.request.Request(
+        url, data=_soap(body), method="POST",
+        headers={"Content-Type": "application/soap+xml; charset=utf-8"})
+    ctx = ssl._create_unverified_context() if tls else None
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return r.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:           # 401/500 carries a SOAP fault
+        try:
+            return e.read().decode(errors="replace")
+        except Exception:
+            return ""
+    except Exception:
+        return ""
+
+
+def onvif_probe(ip: str) -> dict:
+    out: dict = {}
+    for port, tls in ONVIF_TARGETS:
+        try:
+            socket.create_connection((ip, port), timeout=0.6).close()
+        except OSError:
+            continue
+        for path in ONVIF_PATHS:
+            resp = _onvif_post(ip, port, tls, path, "<tds:GetSystemDateAndTime/>")
+            if "Envelope" not in resp and "SystemDateAndTime" not in resp:
+                continue
+            out["onvif_port"] = port
+            info = _onvif_post(ip, port, tls, path, "<tds:GetDeviceInformation/>")
+            for key, pat in (("manufacturer", "Manufacturer"), ("model", "Model"),
+                             ("firmware", "FirmwareVersion"), ("serial", "SerialNumber")):
+                m = re.search(rf"{pat}>([^<]+)<", info)
+                if m:
+                    out[key] = m.group(1).strip()
+            if "model" not in out and re.search(r"NotAuthorized|Sender|ter:Not", info):
+                out["auth_required"] = True
+            return out
+    return out
+
+
 # Vendor heuristics: pattern → vendor hint.
 VENDOR_PATTERNS = [
     (r"hikvision|App-webs|webs/", "Hikvision"),
@@ -248,13 +316,13 @@ for resp in wsdiscovery():
     findings[ip]["vendor_hint"] = findings[ip].get("vendor_hint", "") or guess_vendor(" ".join(resp["xaddrs"]))
 
 # TCP probes per known host (in parallel) — only when --active.
-def probe_host(ip: str) -> tuple[str, dict, dict]:
-    return ip, rtsp_probe(ip), http_probe(ip)
+def probe_host(ip: str) -> tuple[str, dict, dict, dict]:
+    return ip, rtsp_probe(ip), http_probe(ip), onvif_probe(ip)
 
 if hosts and active:
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(hosts))) as ex:
-        for ip, rtsp, http in ex.map(probe_host, hosts):
-            if not rtsp and not http:
+        for ip, rtsp, http, onvif in ex.map(probe_host, hosts):
+            if not rtsp and not http and not onvif:
                 continue
             f = findings.setdefault(ip, {"ip": ip, "sources": []})
             if rtsp:
@@ -273,6 +341,23 @@ if hosts and active:
                                     " " + http.get("title",""))
                 if hint and not f.get("vendor_hint"):
                     f["vendor_hint"] = hint
+            if onvif:
+                if "onvif" not in f["sources"]:
+                    f["sources"].append("onvif")
+                if onvif.get("model"):        f["model"] = onvif["model"]
+                if onvif.get("firmware"):     f["firmware"] = onvif["firmware"]
+                if onvif.get("manufacturer"): f["manufacturer"] = onvif["manufacturer"]
+                if onvif.get("auth_required"): f["onvif_auth_required"] = True
+                # Expand a TP-Link model code to a Tapo/VIGI label.
+                man = (onvif.get("manufacturer") or "").lower()
+                if device_models and onvif.get("model") and "tp-link" in man:
+                    lbl = device_models.tplink_camera(onvif["model"])
+                    if lbl:
+                        f["vendor_hint"] = lbl
+                hint = guess_vendor((onvif.get("manufacturer","") + " " +
+                                     onvif.get("model","")))
+                if hint and not f.get("vendor_hint"):
+                    f["vendor_hint"] = hint
 
 rows = sorted(findings.values(), key=lambda r: tuple(int(x) for x in r["ip"].split(".")))
 
@@ -282,14 +367,15 @@ elif fmt == "md":
     print(f"# Camera discovery ({len(rows)} candidates)\n")
     if not rows:
         print("_no camera-shaped devices found._"); sys.exit(0)
-    print("| IP | Vendor | Sources | RTSP | HTTP | ONVIF XAddr |")
-    print("| --- | --- | --- | --- | --- | --- |")
+    print("| IP | Vendor | Model | Firmware | Sources | RTSP | HTTP |")
+    print("| --- | --- | --- | --- | --- | --- | --- |")
     for r in rows:
-        print(f"| {r['ip']} | {r.get('vendor_hint','')} | "
+        model = r.get("model", "") + (" (auth?)" if r.get("onvif_auth_required") else "")
+        print(f"| {r['ip']} | {r.get('vendor_hint','')} | {model} | "
+              f"{r.get('firmware','')} | "
               f"{','.join(r.get('sources',[]))} | "
               f"{r.get('rtsp_server','')} | "
-              f"{r.get('http_server','')} | "
-              f"{r.get('onvif_xaddr','')} |")
+              f"{r.get('http_server','')} |")
 else:
     print(f"Camera discovery — {len(rows)} candidate(s) on the LAN")
     print()
@@ -297,11 +383,15 @@ else:
         print("(no camera-shaped devices found)")
         print("Try `--hosts <ip1,ip2>` to probe specific candidates directly.")
         sys.exit(0)
-    print(f"{'IP':<15} {'vendor':<18} {'sources':<18} {'rtsp':<28} {'http server'}")
+    print(f"{'IP':<15} {'vendor':<20} {'model':<18} {'sources':<22} {'rtsp/http'}")
     print("-" * 110)
     for r in rows:
-        print(f"{r['ip']:<15} {r.get('vendor_hint','')[:18]:<18} "
-              f"{','.join(r.get('sources',[]))[:18]:<18} "
-              f"{r.get('rtsp_server','')[:28]:<28} "
-              f"{r.get('http_server','')[:30]}")
+        model = r.get("model", "") + (" (auth?)" if r.get("onvif_auth_required") else "")
+        srv = r.get("rtsp_server", "") or r.get("http_server", "")
+        print(f"{r['ip']:<15} {r.get('vendor_hint','')[:20]:<20} "
+              f"{model[:18]:<18} "
+              f"{','.join(r.get('sources',[]))[:22]:<22} "
+              f"{srv[:28]}")
+        if r.get("firmware"):
+            print(f"{'':<15} firmware: {r['firmware']}")
 PY
