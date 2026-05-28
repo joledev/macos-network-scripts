@@ -81,3 +81,27 @@ def test_analyze_ignores_non_dhcp_udp():
     # UDP to port 53 (DNS) must be skipped.
     frame = _eth(_ipv4(_udp(b"not-dhcp", sport=5353, dport=53)))
     assert dhcp_parse.analyze(_pcap([frame])) == []
+
+
+def test_classify_os_vendor_class_is_authoritative():
+    assert dhcp_parse.classify_os({"vendor_class": "android-dhcp-14"}) == "Android"
+    assert dhcp_parse.classify_os({"vendor_class": "MSFT 5.0"}) == "Windows"
+    assert "Embedded Linux" in dhcp_parse.classify_os({"vendor_class": "udhcp 1.0"})
+
+
+def test_classify_os_falls_back_to_opt55_heuristic():
+    # No vendor class → match the curated option-55 table, flagged heuristic.
+    out = dhcp_parse.classify_os({"fingerprint": "1,3,6,15,26,28,51,58,59,43"})
+    assert out == "Android (heuristic)"
+
+
+def test_classify_os_unknown_returns_empty():
+    assert dhcp_parse.classify_os({}) == ""
+    assert dhcp_parse.classify_os({"fingerprint": "99,98,97"}) == ""
+
+
+def test_analyze_annotates_os_guess():
+    msg = _dhcp_msg(b"\x11\x22\x33\x44\x55\x66", "NAS01", "udhcp 1.0", [1, 3, 6])
+    frame = _eth(_ipv4(_udp(msg)))
+    recs = dhcp_parse.analyze(_pcap([frame]))
+    assert "Embedded Linux" in recs[0].get("os_guess", "")

@@ -97,6 +97,9 @@ recs = dhcp_parse.analyze(data)
 for r in recs:
     if r.get("mac") and oui is not None:
         r["vendor"] = oui.lookup(r["mac"])
+        kind = oui.mac_kind(r["mac"])
+        if kind == "random/local":
+            r["mac_kind"] = kind
 recs.sort(key=lambda r: r.get("hostname", "") or r.get("mac", ""))
 
 if fmt == "json":
@@ -109,11 +112,11 @@ if fmt == "md":
         print("_no DHCP traffic captured in the window (it's sporadic — try a "
               "longer --duration or reconnect a device)._")
         sys.exit(0)
-    print("| MAC | Vendor | Hostname | Vendor class | Msg | Fingerprint (opt 55) |")
-    print("| --- | --- | --- | --- | --- | --- |")
+    print("| MAC | Vendor | OS guess | Hostname | Vendor class | Msg | Fingerprint (opt 55) |")
+    print("| --- | --- | --- | --- | --- | --- | --- |")
     for r in recs:
-        print(f"| {r.get('mac','')} | {r.get('vendor','')} | {r.get('hostname','')} | "
-              f"{r.get('vendor_class','')} | {r.get('msg_type','')} | "
+        print(f"| {r.get('mac','')} | {r.get('vendor','')} | {r.get('os_guess','')} | "
+              f"{r.get('hostname','')} | {r.get('vendor_class','')} | {r.get('msg_type','')} | "
               f"`{r.get('fingerprint','')}` |")
     sys.exit(0)
 
@@ -124,7 +127,9 @@ if not recs:
     sys.exit(0)
 for r in recs:
     print(f"{r.get('mac',''):<19} {r.get('hostname','') or '(no hostname)'}")
-    for k in ("vendor", "vendor_class", "msg_type", "requested_ip"):
+    if r.get("mac_kind") == "random/local":
+        print(f"    {'mac':<13}: randomized / locally-administered (privacy MAC)")
+    for k in ("vendor", "os_guess", "vendor_class", "msg_type", "requested_ip"):
         if r.get(k):
             print(f"    {k:<13}: {r[k]}")
     if r.get("fingerprint"):
