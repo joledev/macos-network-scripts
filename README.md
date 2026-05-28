@@ -66,6 +66,9 @@ Reports land under `output/`:
 ./bin/netkit doctor                Verify environment and tools
 ./bin/netkit interfaces            List interfaces (text/md/json)
 ./bin/netkit discover [--active]   List LAN hosts
+./bin/netkit fingerprint           Deep per-host probe (ports, HTTP/TLS, role)
+./bin/netkit ssdp                  UPnP / SSDP discovery (TVs, routers, media)
+./bin/netkit ubnt-discover         Ubiquiti discovery (UniFi / airMAX / EdgeMax)
 ./bin/netkit dns                   DNS resolver and per-service config
 ./bin/netkit mdns [--duration N]   Browse Bonjour / mDNS services
 ./bin/netkit topology [--mermaid]  Topology map

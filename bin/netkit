@@ -5,6 +5,9 @@
 #   doctor                Verify environment, tools, and permissions
 #   interfaces            List network interfaces with kind, ip, status, speed
 #   discover [--active]   Discover LAN hosts (safe, ARP-only by default)
+#   fingerprint           Deep per-host probe (ports, HTTP/TLS, role) [--aggressive]
+#   ssdp                  UPnP / SSDP discovery (TVs, routers, media, repeaters)
+#   ubnt-discover         Ubiquiti device discovery (UniFi / airMAX / EdgeMax)
 #   dns                   Show DNS resolvers and per-service config
 #   mdns [--duration N]   Browse Bonjour / mDNS services on the LAN
 #   topology [--active]   Map local topology; supports --mermaid output
@@ -53,7 +56,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -84,6 +87,12 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/discovery/interfaces.sh" "$@" ;;
   discover|hosts)
     "${NETKIT_ROOT}/scripts/discovery/hosts.sh" "$@" ;;
+  fingerprint|fp)
+    "${NETKIT_ROOT}/scripts/discovery/fingerprint.sh" "$@" ;;
+  ssdp|upnp)
+    "${NETKIT_ROOT}/scripts/discovery/ssdp.sh" "$@" ;;
+  ubnt-discover|ubiquiti|ubntscan)
+    "${NETKIT_ROOT}/scripts/discovery/ubnt.sh" "$@" ;;
   dns)
     "${NETKIT_ROOT}/scripts/discovery/dns.sh" "$@" ;;
   mdns|bonjour)
