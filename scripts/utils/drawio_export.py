@@ -7,6 +7,7 @@ add rooms/racks, assign fields) on top of the discovered topology.
 from __future__ import annotations
 
 import html
+import re
 from typing import Any
 
 try:
@@ -104,6 +105,19 @@ def render(report: dict) -> str:
     gw_y = y
     y += bh + gapy + 30
 
+    infra = report.get("infrastructure", []) or []
+    infra_ids = {n["id"] for n in infra}
+    ip2infra = {ip: n["id"] for n in infra for ip in n.get("ports", [])}
+
+    def ent(parent):
+        if not parent or parent == gw:
+            return gw_id
+        if parent in infra_ids:
+            return "inf-" + re.sub(r"[^A-Za-z0-9_-]", "_", parent)
+        if re.match(r"^\d+\.\d+\.\d+\.\d+$", str(parent)):
+            return nid(parent)
+        return gw_id
+
     # self (this Mac)
     for i, sif in enumerate(self_ifaces):
         sid = "self-" + sif["device"]
@@ -114,10 +128,22 @@ def render(report: dict) -> str:
                                 f'{BR}{_esc(sif.get("ipv4",""))}{warn}',
                            "rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8c5;",
                            60 + i * (bw + gapx), gw_y, bw, bh))
-        cells.append(_edge(f"e-self-{i}", sid, gw_id,
+        cells.append(_edge(f"e-self-{i}", sid, ent(ip2infra.get(sif.get("ipv4", ""), gw)),
                            "edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;"))
 
-    # device tier(s)
+    # infrastructure tier (unmanaged switches / patch panels)
+    for i, n in enumerate(infra):
+        iid = "inf-" + re.sub(r"[^A-Za-z0-9_-]", "_", n["id"])
+        lbl = BR.join(_esc(x) for x in (n.get("name", n["id"]), n.get("model", ""),
+                                        n.get("speed", ""), n.get("location", "")) if x)
+        cells.append(_cell(iid, lbl,
+                           "rounded=1;whiteSpace=wrap;html=1;fillColor=#2da44e;fontColor=#fff;",
+                           (i % per_row) * (bw + gapx) + (gapx // 2), y, bw, bh))
+        cells.append(_edge(f"e-inf-{i}", ent(n.get("parent")), iid))
+    if infra:
+        y += ((len(infra) + per_row - 1) // per_row) * (bh + gapy)
+
+    # device tier(s) — each host attaches to its parent (switch or gateway)
     for idx, rec in enumerate(others):
         row, col = divmod(idx, per_row)
         nx = col * (bw + gapx) + (gapx // 2)
@@ -125,7 +151,7 @@ def render(report: dict) -> str:
         cells.append(_cell(nid(rec["ip"]), _label(rec),
                            f"rounded=1;whiteSpace=wrap;html=1;fillColor={_color(rec.get('role',''))};fontColor=#fff;",
                            nx, ny, bw, bh))
-        cells.append(_edge(f"e-{idx}", gw_id, nid(rec["ip"])))
+        cells.append(_edge(f"e-{idx}", ent(rec.get("parent")), nid(rec["ip"])))
 
     body = "".join(cells)
     model = (f'<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" '

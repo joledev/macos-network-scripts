@@ -505,6 +505,17 @@ for rec in merged.values():
 hosts = sorted(merged.values(),
                key=lambda r: tuple(int(x) for x in r["ip"].split(".")) if re.match(r"^\d+\.\d+\.\d+\.\d+$", r["ip"]) else (0,))
 
+# Manually-declared infrastructure (unmanaged switches, patch panels, cable
+# runs) — gear with no IP that scans can't see. Inject it so the map is complete
+# and re-parent any hosts that hang off it.
+import infrastructure
+infra_nodes = infrastructure.load()
+_parent_of = infrastructure.host_parent_map(infra_nodes)
+for h in hosts:
+    h["parent"] = _parent_of.get(h.get("ip", ""), gw)
+for n in infra_nodes:
+    n["parent"] = n.get("uplink") or gw   # uplink: a host/gateway IP or another node id
+
 # Self interfaces (this Mac) + the slow-link flag baked in for the map.
 self_ifaces = []
 for r in ifs_mod.get("interfaces", []):
@@ -565,6 +576,7 @@ report = {
     "wifi": wifi_cur,
     "dish": dish,
     "fdb_topology": {"uplinks": fdb_topo["uplinks"], "edge_count": len(fdb_topo["edges"])},
+    "infrastructure": infra_nodes,
     "count": len(hosts),
     "hosts": hosts,
 }
@@ -606,6 +618,27 @@ def label(rec):
     return "<br/>".join(parts)
 
 
+INFRA_CLASS = {"switch": "ap", "patch-panel": "unknown", "router": "router",
+               "ap": "ap", "modem": "router", "media-converter": "unknown",
+               "other": "unknown"}
+infra_by_id = {n["id"]: n for n in infra_nodes}
+
+
+def infra_node_id(nid):
+    return "inf_" + re.sub(r"[^A-Za-z0-9_]", "_", nid)
+
+
+def ent_id(parent):
+    """Resolve a parent value (gateway IP / host IP / infra id) to a node id."""
+    if not parent or parent == gw:
+        return gw_id
+    if parent in infra_by_id:
+        return infra_node_id(parent)
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", parent):
+        return node_id(parent)
+    return gw_id
+
+
 lines = ["graph TD"]
 lines.append('  inet([" Internet "])')
 gw_id = node_id(gw) if gw else "gw"
@@ -621,12 +654,25 @@ gw_rec = next((h for h in hosts if h["ip"] == gw), None)
 gw_label = label(gw_rec) if gw_rec else (gw or "gateway")
 lines.append(f'  {gw_id}["Router / Gateway<br/>{gw_label}"]')
 
+# Infrastructure nodes (unmanaged switches, patch panels, ...) parented by uplink.
+for n in infra_nodes:
+    iid = infra_node_id(n["id"])
+    parts = [esc(n["name"])]
+    if n.get("model"):
+        parts.append(esc(n["model"])[:28])
+    if n.get("speed"):
+        parts.append(esc(n["speed"]))
+    if n.get("location"):
+        parts.append(esc(n["location"]))
+    lines.append(f'  {iid}["{"<br/>".join(parts)}"]')
+    lines.append(f"  {ent_id(n.get('parent'))} --> {iid}")
+
 for rec in hosts:
     if rec["ip"] == gw:
         continue
     nid = node_id(rec["ip"])
     lines.append(f'  {nid}["{label(rec)}"]')
-    lines.append(f"  {gw_id} --> {nid}")
+    lines.append(f"  {ent_id(rec.get('parent', gw))} --> {nid}")
 
 # this Mac (self) with its link-speed label — surfaces a slow uplink visually
 for sif in self_ifaces:
@@ -638,7 +684,7 @@ for sif in self_ifaces:
         warn = f"<br/>LINK {spd}/{cap} Mbps (!)"
     lines.append(f'  {sid}(["This Mac<br/>{sif["device"]} {sif.get("kind","")}<br/>{sif["ipv4"]}{warn}"])')
     edge = f'{spd} Mbps' if spd else sif.get("kind", "")
-    lines.append(f'  {sid} -- "{edge}" --> {gw_id}')
+    lines.append(f'  {sid} -- "{edge}" --> {ent_id(_parent_of.get(sif["ipv4"], gw))}')
 
 # class styling
 lines.append("  classDef router fill:#1f6feb,stroke:#0b3d91,color:#fff;")
@@ -661,6 +707,8 @@ for rec in hosts:
     lines.append(f"  class {node_id(rec['ip'])} {cls};")
 for sif in self_ifaces:
     lines.append(f'  class self_{sif["device"]} selfnode;')
+for n in infra_nodes:
+    lines.append(f'  class {infra_node_id(n["id"])} {INFRA_CLASS.get(n["type"], "unknown")};')
 
 with open(os.environ["NETKIT_MMD_OUT"], "w") as f:
     f.write("\n".join(lines) + "\n")

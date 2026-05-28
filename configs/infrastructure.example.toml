@@ -1,0 +1,42 @@
+# Non-discoverable network infrastructure — gear with no IP / no management that
+# scans can't see (unmanaged switches, patch panels, media converters, cable
+# runs, dumb APs). Declare it here and `netkit recon` injects it into the map,
+# editor, mermaid and NetBox export so the topology is COMPLETE.
+#
+# Copy to configs/infrastructure.toml (gitignored) and fill in.
+#
+# Fields:
+#   id       unique slug (referenced by other nodes' uplink)
+#   name     label shown on the map
+#   type     switch | patch-panel | router | ap | modem | media-converter | other
+#   model    e.g. "TP-Link TL-SF1005D"
+#   speed    e.g. "10/100 Mbps"   (optional, shown on the node)
+#   location room / floor / rack  (optional → NetBox site/location)
+#   uplink   what it connects upstream to: a gateway/host IP, or another node id
+#   ports    list of host IPs that hang off this device (re-parents them on the map)
+#   notes    free text
+
+[[node]]
+id       = "sw-sala"
+name     = "Switch sala"
+type     = "switch"
+model    = "TP-Link TL-SF1005D"
+speed    = "10/100 Mbps"
+location = "Sala principal"
+uplink   = "192.168.1.1"          # connects up to the Starlink router
+# Hosts hanging off this switch (re-parented under it on the map). Includes both
+# the MacBook and the Mercusys Halo mesh node found plugged into it:
+ports    = ["192.168.1.21", "192.168.1.69"]
+notes    = "5-port Fast Ethernet, unmanaged — caps en7 at 100 Mbps"
+
+# Discovered hosts (with an IP) like the Halo mesh AP get LABELLED in
+# configs/known-hosts.toml instead — e.g.:
+#   [[host]]  ip = "192.168.1.69"  name = "Mercusys Halo H50 (AP)"  role = "ap/switch/router"
+# and listed in a switch's `ports` above so they sit under it on the map.
+
+# [[node]]
+# id     = "patch-piso2"
+# name   = "Patch panel piso 2"
+# type   = "patch-panel"
+# location = "Rack piso 2"
+# uplink = "sw-core"               # chains to another infra node by id

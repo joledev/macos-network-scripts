@@ -69,11 +69,23 @@ def _build_graph(report: dict):
 
     gw_rec = next((h for h in hosts if h["ip"] == gw), None)
     gw_name = _node_name(gw_rec) if gw_rec else gw
-    add_node(gw or "gateway", f"{gw_name}\n{gw}".strip(), "router/gateway", cx, y,
+    gw_id = gw or "gateway"
+    add_node(gw_id, f"{gw_name}\n{gw}".strip(), "router/gateway", cx, y,
              _node_fields(gw_rec) if gw_rec else {"ip": gw})
-    edges.append({"from": prev, "to": gw or "gateway"})
+    edges.append({"from": prev, "to": gw_id})
     gw_y = y
     y += gapy + 30
+
+    infra = report.get("infrastructure", []) or []
+    infra_ids = {n["id"] for n in infra}
+    ip2infra = {ip: n["id"] for n in infra for ip in n.get("ports", [])}
+
+    def resolve(parent):
+        if not parent or parent == gw:
+            return gw_id
+        if parent in infra_ids:
+            return "inf-" + parent
+        return parent  # a host IP node
 
     for i, sif in enumerate(self_ifaces):
         sid = "self-" + sif["device"]
@@ -82,7 +94,21 @@ def _build_graph(report: dict):
         add_node(sid, f"This Mac · {sif['device']}\n{sif.get('ipv4','')}{warn}",
                  "self", 40 + i * (bw + gapx), gw_y,
                  {"ip": sif.get("ipv4", ""), "kind": "this-mac"})
-        edges.append({"from": sid, "to": gw or "gateway", "dashes": True})
+        edges.append({"from": sid, "to": resolve(ip2infra.get(sif.get("ipv4", ""), gw)),
+                      "dashes": True})
+
+    # infrastructure tier (unmanaged switches / patch panels)
+    for i, n in enumerate(infra):
+        nid = "inf-" + n["id"]
+        lbl = "\n".join(x for x in (n.get("name", n["id"]), n.get("model", ""),
+                                    n.get("speed", ""), n.get("location", "")) if x)
+        add_node(nid, lbl, n.get("type", "switch"),
+                 (i % per_row) * (bw + gapx), y,
+                 {"model": n.get("model", ""), "location": n.get("location", ""),
+                  "room": n.get("location", ""), "notes": n.get("notes", "")})
+        edges.append({"from": resolve(n.get("parent")), "to": nid})
+    if infra:
+        y += ((len(infra) + per_row - 1) // per_row) * gapy
 
     for idx, rec in enumerate(others):
         row, col = divmod(idx, per_row)
@@ -91,7 +117,7 @@ def _build_graph(report: dict):
         name = _node_name(rec)
         label = f"{name}\n{rec['ip']}" if name and name != rec["ip"] else rec["ip"]
         add_node(rec["ip"], label, rec.get("role", "host"), nx, ny, _node_fields(rec))
-        edges.append({"from": gw or "gateway", "to": rec["ip"]})
+        edges.append({"from": resolve(rec.get("parent")), "to": rec["ip"]})
 
     return nodes, edges
 
@@ -118,6 +144,11 @@ def _group_options() -> dict:
     groups["internet"] = {"color": {"background": "#1a1a1a"}, "font": {"color": "#fff"}}
     groups["self"] = {"color": {"background": "#fff8c5", "border": "#9a6700"}}
     groups["host"] = {"color": {"background": DEFAULT_COLOR}}
+    # Infrastructure node types (unmanaged switches, patch panels, ...).
+    for t, c in (("switch", "#2da44e"), ("ap", "#2da44e"), ("router", "#1f6feb"),
+                 ("modem", "#1f6feb"), ("patch-panel", "#8c959f"),
+                 ("media-converter", "#8c959f"), ("other", "#8c959f")):
+        groups.setdefault(t, {"color": {"background": c}, "font": {"color": "#fff"}})
     return groups
 
 

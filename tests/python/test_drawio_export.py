@@ -43,3 +43,14 @@ def test_labels_escaped_not_raw_markup():
     # <br> must be entity-escaped inside value="" so the XML stays well-formed.
     assert "value=\"Router" in xml or "value=\"Starlink" in xml
     assert "&lt;br&gt;" in xml
+
+
+def test_infrastructure_node_rendered():
+    import xml.dom.minidom as minidom
+    rep = dict(REPORT)
+    rep["infrastructure"] = [{"id": "sw-sala", "name": "Switch sala", "type": "switch",
+                              "model": "TL-SF1005D", "parent": "192.168.1.1", "ports": []}]
+    xml = drawio_export.render(rep)
+    minidom.parseString(xml)             # still well-formed
+    assert "Switch sala" in xml
+    assert "inf-sw-sala" in xml

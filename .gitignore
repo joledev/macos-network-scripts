@@ -43,3 +43,4 @@ build/
 *.log
 configs/known-hosts.toml
 configs/devices.toml
+configs/infrastructure.toml

@@ -80,6 +80,18 @@ def device_rows(report: dict) -> list[dict]:
             "status": "active",
             "comments": f"{h.get('ip','')} {h.get('mac','')}".strip(),
         })
+    # Manually-declared infrastructure (unmanaged switches, patch panels, ...).
+    for n in report.get("infrastructure", []) or []:
+        model = n.get("model", "")
+        rows.append({
+            "name": n.get("name") or n.get("id", ""),
+            "role": (n.get("type") or "other").replace("/", "-"),
+            "manufacturer": model.split()[0] if model else "",
+            "device_type": (model or n.get("type", ""))[:60],
+            "site": n.get("location") or site,
+            "status": "active",
+            "comments": (n.get("notes", "") or n.get("speed", "")).strip(),
+        })
     return rows
 
 

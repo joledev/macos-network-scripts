@@ -27,6 +27,9 @@ ROLE_COLORS = {
 }
 DEFAULT_COLOR = "#8c959f"
 SELF_COLOR = "#9a6700"
+INFRA_COLOR = {"switch": "#2da44e", "ap": "#2da44e", "router": "#1f6feb",
+               "modem": "#1f6feb", "patch-panel": "#8c959f",
+               "media-converter": "#8c959f", "other": "#8c959f"}
 
 
 def _color(role: str) -> str:
@@ -92,6 +95,14 @@ def render(report: dict, *, brand: str = "Network map") -> str:
     gw_y = y
     y += box_h + gap_y + 30
 
+    # Resolve a parent value (gateway IP / host IP / infra id) to a node object.
+    node_by_ent = {"gw": gw_node, gw: gw_node}
+    infra = report.get("infrastructure", []) or []
+    ip2infra = {ip: n["id"] for n in infra for ip in n.get("ports", [])}
+
+    def resolve(parent):
+        return node_by_ent.get(parent) or gw_node
+
     # this Mac (self) — to the left of the gateway, link-speed labelled
     for i, sif in enumerate(self_ifaces):
         sx = margin + box_w / 2 + i * (box_w + gap_x)
@@ -107,10 +118,29 @@ def render(report: dict, *, brand: str = "Network map") -> str:
                          "link_warning": "negotiated below capacity" if warn else ""}}
         nodes.append(snode)
         lbl = f"{spd} Mbps" if spd else sif.get("kind", "")
-        edges.append({"a": snode, "b": gw_node, "label": lbl,
-                      "cls": "slow" if warn else "selflink"})
+        edges.append({"a": snode, "b": resolve(ip2infra.get(sif.get("ipv4", ""), "gw")),
+                      "label": lbl, "cls": "slow" if warn else "selflink"})
 
-    # device tier
+    # infrastructure tier (unmanaged switches / patch panels) between gw + devices
+    if infra:
+        for i, n in enumerate(infra):
+            row, col = divmod(i, per_row)
+            row_count = min(per_row, len(infra) - row * per_row)
+            row_width = row_count * box_w + (row_count - 1) * gap_x
+            ix = cx - row_width / 2 + box_w / 2 + col * (box_w + gap_x)
+            iy = y + row * (box_h + gap_y)
+            inode = {"id": "inf_" + n["id"], "x": ix, "y": iy,
+                     "role": n.get("type", "switch"),
+                     "color": INFRA_COLOR.get(n.get("type", ""), DEFAULT_COLOR),
+                     "title": _esc(n.get("name", n["id"]))[:24],
+                     "sub": _esc(n.get("model") or n.get("type", ""))[:26],
+                     "rec": {"role": n.get("type", "switch"), **n}}
+            nodes.append(inode)
+            node_by_ent[n["id"]] = inode
+            edges.append({"a": resolve(n.get("parent")), "b": inode, "label": "", "cls": "link"})
+        y += ((len(infra) + per_row - 1) // per_row) * (box_h + gap_y)
+
+    # device tier — each host attaches to its parent (switch or gateway)
     for idx, rec in enumerate(others):
         row, col = divmod(idx, per_row)
         row_count = min(per_row, len(others) - row * per_row)
@@ -122,7 +152,8 @@ def render(report: dict, *, brand: str = "Network map") -> str:
                 "role": rec.get("role", "host"), "color": _color(rec.get("role", "")),
                 "title": rec["ip"], "sub": _esc(_node_name(rec))[:26], "rec": rec}
         nodes.append(node)
-        edges.append({"a": gw_node, "b": node, "label": "", "cls": "link"})
+        node_by_ent[rec["ip"]] = node
+        edges.append({"a": resolve(rec.get("parent")), "b": node, "label": "", "cls": "link"})
 
     rows_used = (len(others) + per_row - 1) // per_row if others else 0
     height = int(y + rows_used * (box_h + gap_y) + margin)

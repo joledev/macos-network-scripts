@@ -54,3 +54,17 @@ def test_device_csv_columns():
 
 def test_ip_rows_empty_when_no_hosts():
     assert nb.ip_rows({"hosts": []}) == []
+
+
+def test_device_rows_include_infrastructure():
+    rep = dict(REPORT)
+    rep["infrastructure"] = [{
+        "id": "sw-sala", "name": "Switch sala", "type": "switch",
+        "model": "TP-Link TL-SF1005D", "location": "Sala", "notes": "10/100 unmanaged",
+    }]
+    rows = nb.device_rows(rep)
+    sw = next((r for r in rows if r["name"] == "Switch sala"), None)
+    assert sw is not None
+    assert sw["role"] == "switch"
+    assert "TL-SF1005D" in sw["device_type"]
+    assert sw["site"] == "Sala"
