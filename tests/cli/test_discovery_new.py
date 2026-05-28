@@ -86,6 +86,12 @@ def test_recon_subnets_dry_run_lists_them(run_netkit, tmp_output_dir):
     assert "10.0.1.0/24" in p.stderr
 
 
+def test_recon_snmp_switches_flag_parses(run_netkit, tmp_output_dir):
+    # Flag is accepted (no crash); dry-run does no SNMP.
+    p = run_netkit("recon", "--snmp-switches", "10.0.0.2:public", "--dry-run")
+    assert p.returncode == 0
+
+
 # ---- Tier-1 enrichment commands: netbios / wsd / ndp ----
 TIER1_CMDS = ["netbios", "wsd", "ndp"]
 

@@ -259,6 +259,7 @@ function detail(rec){{
   h += row('name', esc(rec.known_name));
   h += row('media', esc(rec.media));
   if(rec.link_mbps) h += row('link', `${{esc(rec.link_mbps)}} Mbps`+(rec.link_warning?` <b style="color:#cf222e">(${{esc(rec.link_warning)}})</b>`:''));
+  if(rec.switch_port) h += row('switch port', `<b>${{esc(rec.switch_port)}}</b>`);
   h += '</div>';
   if(rec.ports && rec.ports.length){{
     h += '<div class="sec"><b>Open ports</b><br>';

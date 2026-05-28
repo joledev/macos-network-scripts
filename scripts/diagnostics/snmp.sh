@@ -281,6 +281,17 @@ if rc == 0:
 # dot1dTpFdbPort = 1.3.6.1.2.1.17.4.3.1.2  → maps MAC → bridge port
 bridge_fdb: list[dict[str, str]] = []
 if BRIDGE:
+    # dot1dBasePortIfIndex (1.3.6.1.2.1.17.1.4.1.2): bridge port → ifIndex, so we
+    # can resolve each forwarding entry to a human port name (ifName).
+    port_ifindex: dict[str, str] = {}
+    rc, out, _ = _run("snmpwalk", "-Ofq", "1.3.6.1.2.1.17.1.4.1.2")
+    if rc == 0:
+        for ln in out.splitlines():
+            m = re.match(r".*\.(\d+)\s+(\d+)$", ln.strip())
+            if m:
+                port_ifindex[m.group(1)] = m.group(2)
+    ifname_by_index = {i["ifIndex"]: i["name"] for i in interfaces}
+
     rc, out, _ = _run("snmpwalk", "-Ofq", "1.3.6.1.2.1.17.4.3.1.2")
     if rc == 0:
         for ln in out.splitlines():
@@ -291,7 +302,12 @@ if BRIDGE:
             m = re.match(r".*\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\s+(\d+)$", ln)
             if m:
                 mac = ":".join(f"{int(x):02x}" for x in m.groups()[:6])
-                bridge_fdb.append({"mac": mac, "port": m.group(7)})
+                port = m.group(7)
+                ifidx = port_ifindex.get(port, port)
+                bridge_fdb.append({
+                    "mac": mac, "port": port, "ifindex": ifidx,
+                    "port_name": ifname_by_index.get(ifidx, ""),
+                })
 
 
 # ---- assemble + render ----

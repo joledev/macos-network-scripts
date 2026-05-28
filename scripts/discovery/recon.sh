@@ -25,6 +25,8 @@
 #   --aggressive    let fingerprint use nmap -sV (service/version) when present
 #   --subnets       comma-separated CIDRs to scan (building/multi-VLAN); default
 #                   is the local subnet. Routed ranges yield IPs (no MAC across L3)
+#   --snmp-switches host[:community],...  walk each switch's bridge FDB to tag
+#                   hosts with the switch:port they're plugged into (Netdisco-style)
 #   --with-starlink include the Starlink dish as the upstream node
 
 set -euo pipefail
@@ -38,6 +40,7 @@ WITH_STARLINK=0
 IFACE=""
 STDOUT_FMT=""
 SUBNETS_CSV=""
+SNMP_SWITCHES=""
 
 while (( $# )); do
   case "$1" in
@@ -47,6 +50,9 @@ while (( $# )); do
     --subnets)
       [[ -n "${2:-}" ]] || die_usage "--subnets requires a comma-separated CIDR list"
       SUBNETS_CSV="$2"; shift 2 ;;
+    --snmp-switches)
+      [[ -n "${2:-}" ]] || die_usage "--snmp-switches requires host[:community],..."
+      SNMP_SWITCHES="$2"; shift 2 ;;
     --interface)
       [[ -n "${2:-}" ]] || die_usage "--interface requires a value"
       IFACE="$2"; shift 2 ;;
@@ -214,6 +220,23 @@ else
   echo '{}' > "$TMP_DIR/starlink.json"
 fi
 
+# 11) SNMP switches (optional) — walk bridge FDB for port-level topology.
+SWITCH_FILES=""
+if [[ -n "$SNMP_SWITCHES" ]]; then
+  IFS=',' read -r -a _SW <<< "$SNMP_SWITCHES"
+  _j=0
+  for _tok in "${_SW[@]}"; do
+    _tok="${_tok// /}"; [[ -z "$_tok" ]] && continue
+    _sw_ip="${_tok%%:*}"
+    _sw_comm="public"; [[ "$_tok" == *:* ]] && _sw_comm="${_tok#*:}"
+    _sf="$TMP_DIR/switch_${_j}.json"
+    run_one "snmp ${_sw_ip}" "$_sf" '{}' \
+      "${SCRIPT_DIR}/../diagnostics/snmp.sh" --host "$_sw_ip" --community "$_sw_comm" --bridge --json
+    SWITCH_FILES+="${_sf} "
+    _j=$((_j + 1))
+  done
+fi
+
 # ---- Merge + emit JSON, mermaid, HTML ----
 NETKIT_GW="$(default_gateway 2>/dev/null || echo "")"
 export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_ROOT \
@@ -221,6 +244,7 @@ export NETKIT_TMP_DIR="$TMP_DIR" NETKIT_TS="$TS" NETKIT_ROOT \
        NETKIT_EDITOR_OUT="$EDITOR_OUT" NETKIT_DRAWIO_OUT="$DRAWIO_OUT" \
        NETKIT_IFACE="$IFACE" NETKIT_SUBNET="$SUBNET" NETKIT_GW \
        NETKIT_SUBNETS="${SUBNETS_CSV:-$SUBNET}" \
+       NETKIT_SWITCH_FILES="${SWITCH_FILES}" \
        NETKIT_STDOUT_FMT="$STDOUT_FMT"
 
 python3 - <<'PY'
@@ -494,6 +518,32 @@ for r in ifs_mod.get("interfaces", []):
 
 wifi_cur = (wifi_mod.get("current") or {}) if isinstance(wifi_mod, dict) else {}
 
+# Port-level topology from SNMP bridge FDB (Netdisco-style): tag each host with
+# the switch:port it's plugged into.
+fdb_topo = {"edges": [], "uplinks": [], "by_mac": {}}
+switch_files = [f for f in os.environ.get("NETKIT_SWITCH_FILES", "").split() if f]
+if switch_files:
+    import fdb_topology
+    switches = []
+    for sf in switch_files:
+        try:
+            sd = json.load(open(sf))
+        except Exception:
+            continue
+        if sd.get("bridge_fdb"):
+            sysd = sd.get("system") or {}
+            switches.append({
+                "host": sd.get("host", ""),
+                "name": sysd.get("name") or sysd.get("sysName") or sd.get("host", ""),
+                "bridge_fdb": sd["bridge_fdb"],
+            })
+    if switches:
+        fdb_topo = fdb_topology.build(switches, hosts)
+        for h in hosts:
+            mac = (h.get("mac") or "").lower()
+            if mac in fdb_topo["by_mac"]:
+                h["switch_port"] = fdb_topology.label(fdb_topo["by_mac"][mac])
+
 dish = {}
 if isinstance(sl_mod, dict) and (sl_mod.get("hardware") or sl_mod.get("tcp_reachable")):
     dish = {
@@ -514,6 +564,7 @@ report = {
     "self_interfaces": self_ifaces,
     "wifi": wifi_cur,
     "dish": dish,
+    "fdb_topology": {"uplinks": fdb_topo["uplinks"], "edge_count": len(fdb_topo["edges"])},
     "count": len(hosts),
     "hosts": hosts,
 }
@@ -550,6 +601,8 @@ def label(rec):
     if rec.get("ports"):
         svc = "/".join(str(p) for p in rec["ports"][:5])
         parts.append("ports " + svc)
+    if rec.get("switch_port"):
+        parts.append("@ " + esc(rec["switch_port"]))
     return "<br/>".join(parts)
 
 
