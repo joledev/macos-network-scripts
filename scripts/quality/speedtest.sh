@@ -113,16 +113,53 @@ elif tool == "cloudflare":
     try:
         d = json.loads(out)
     except json.JSONDecodeError:
-        # cloudflare-speed-cli may emit non-JSON if --json isn't supported.
-        result["error"] = "cloudflare-speed-cli did not return JSON; raw:"
+        result["error"] = "cloudflare-speed-cli did not return JSON"
         result["raw"] = out[:500]
     else:
+        # cloudflare-speed-cli 0.6.x schema: nested objects per metric.
+        def _num(obj, *path):
+            cur = obj
+            for k in path:
+                if not isinstance(cur, dict):
+                    return None
+                cur = cur.get(k)
+            return cur
+        idle   = d.get("idle_latency", {}) or {}
+        ll_dl  = d.get("loaded_latency_download", {}) or {}
+        ll_ul  = d.get("loaded_latency_upload", {}) or {}
+        dl     = d.get("download", {}) or {}
+        ul     = d.get("upload", {}) or {}
+        idle_ms = idle.get("min_ms")
+        # Bufferbloat: how much latency rises under load vs idle. The
+        # worst (download or upload) increase defines the grade.
+        bloat_dl = (ll_dl.get("mean_ms") - idle_ms) if (ll_dl.get("mean_ms") and idle_ms) else None
+        bloat_ul = (ll_ul.get("mean_ms") - idle_ms) if (ll_ul.get("mean_ms") and idle_ms) else None
+        bloat = max([b for b in (bloat_dl, bloat_ul) if b is not None], default=None)
+
+        def _grade(ms):
+            if ms is None: return "?"
+            if ms < 5:   return "A+"
+            if ms < 30:  return "A"
+            if ms < 60:  return "B"
+            if ms < 200: return "C"
+            if ms < 400: return "D"
+            return "F"
+
         result.update({
-            "download_mbps": d.get("downloadMbps") or d.get("download_mbps") or d.get("download"),
-            "upload_mbps":   d.get("uploadMbps")   or d.get("upload_mbps")   or d.get("upload"),
-            "ping_ms":       d.get("latencyMs")    or d.get("latency_ms")    or d.get("latency"),
-            "jitter_ms":     d.get("jitterMs")     or d.get("jitter_ms"),
-            "server":        d.get("server", "Cloudflare"),
+            "download_mbps": round(dl.get("mbps", 0), 2) if dl.get("mbps") else None,
+            "upload_mbps":   round(ul.get("mbps", 0), 2) if ul.get("mbps") else None,
+            "ping_ms":       round(idle_ms, 2) if idle_ms else None,
+            "jitter_ms":     round(idle.get("mean_ms", 0) - idle_ms, 2) if (idle.get("mean_ms") and idle_ms) else None,
+            "packet_loss":   idle.get("loss"),
+            "bufferbloat_ms":     round(bloat, 1) if bloat is not None else None,
+            "bufferbloat_grade":  _grade(bloat),
+            "loaded_latency_download_ms": round(ll_dl.get("mean_ms"), 1) if ll_dl.get("mean_ms") else None,
+            "loaded_latency_upload_ms":   round(ll_ul.get("mean_ms"), 1) if ll_ul.get("mean_ms") else None,
+            "server":        f'Cloudflare {_num(d, "meta", "colo", "iata") or ""}'.strip(),
+            "isp":           d.get("as_org", ""),
+            "asn":           d.get("asn", ""),
+            "external_ipv4": d.get("external_ipv4", ""),
+            "external_ipv6": d.get("external_ipv6", ""),
             "raw":           d,
         })
 
@@ -147,21 +184,29 @@ elif fmt == "md":
     print(f"# Speedtest ({tool})\n")
     print(f"- **Download:** {result['download_mbps']} Mbps")
     print(f"- **Upload:** {result['upload_mbps']} Mbps")
-    print(f"- **Ping:** {result['ping_ms']} ms")
-    print(f"- **Jitter:** {result['jitter_ms']} ms")
+    print(f"- **Idle ping:** {result['ping_ms']} ms · jitter {result.get('jitter_ms','?')} ms")
+    if result.get("bufferbloat_ms") is not None:
+        print(f"- **Bufferbloat:** +{result['bufferbloat_ms']} ms under load — grade **{result.get('bufferbloat_grade','?')}**")
+        print(f"  (loaded latency: down {result.get('loaded_latency_download_ms','?')} ms / up {result.get('loaded_latency_upload_ms','?')} ms)")
     print(f"- **Packet loss:** {result.get('packet_loss')}")
+    print(f"- **ISP / ASN:** {result['isp']} (AS{result.get('asn','?')})")
+    print(f"- **External IP:** {result.get('external_ipv4','') or result.get('external_ipv6','')}")
     print(f"- **Server:** {result['server']}")
-    print(f"- **ISP:** {result['isp']}")
 else:
     print(f"speedtest via {tool}")
     print()
-    print(f"  Download  : {result['download_mbps']:>8} Mbps" if result['download_mbps'] else "  Download  : -")
-    print(f"  Upload    : {result['upload_mbps']:>8} Mbps"   if result['upload_mbps']   else "  Upload    : -")
-    print(f"  Ping      : {result['ping_ms']:>8} ms"          if result['ping_ms']       else "  Ping      : -")
-    if result['jitter_ms']:
-        print(f"  Jitter    : {result['jitter_ms']:>8} ms")
+    print(f"  Download    : {result['download_mbps']:>8} Mbps" if result['download_mbps'] else "  Download    : -")
+    print(f"  Upload      : {result['upload_mbps']:>8} Mbps"   if result['upload_mbps']   else "  Upload      : -")
+    print(f"  Idle ping   : {result['ping_ms']:>8} ms"          if result['ping_ms']       else "  Idle ping   : -")
+    if result.get('jitter_ms') is not None:
+        print(f"  Jitter      : {result['jitter_ms']:>8} ms")
+    if result.get("bufferbloat_ms") is not None:
+        print(f"  Bufferbloat : {result['bufferbloat_ms']:>8} ms  (grade {result.get('bufferbloat_grade','?')})")
+        print(f"                loaded down {result.get('loaded_latency_download_ms','?')} ms / up {result.get('loaded_latency_upload_ms','?')} ms")
     if result.get('packet_loss') is not None:
-        print(f"  Loss      : {result['packet_loss']}%")
-    if result.get('server'): print(f"  Server    : {result['server']}")
-    if result.get('isp'):    print(f"  ISP       : {result['isp']}")
+        print(f"  Loss        : {result['packet_loss']}%")
+    if result.get('isp'):    print(f"  ISP         : {result['isp']} (AS{result.get('asn','?')})")
+    ext = result.get('external_ipv4','') or result.get('external_ipv6','')
+    if ext: print(f"  External IP : {ext}")
+    if result.get('server'): print(f"  Server      : {result['server']}")
 PY

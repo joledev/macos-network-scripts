@@ -137,65 +137,112 @@ result["raw"] = status
 if "_error" in status:
     result["error"] = status["_error"]
 else:
-    # Schema (subject to change across firmware versions):
-    # status.dishGetStatus.{uptimeS, downlinkThroughputBps, uplinkThroughputBps,
-    #                       pingDropRate, popPingLatencyMs, state,
-    #                       deviceInfo:{id, hardwareVersion, softwareVersion, countryCode},
-    #                       alerts:{}, obstructionStats:{fractionObstructed,
-    #                       avgProlongedObstructionDurationS}}
+    # Current schema (firmware 2026.x): dishGetStatus with deviceState
+    # nesting uptimeS, deviceInfo for hw/sw, top-level boresight + GPS +
+    # obstructionStats + alerts. Field names drift between firmwares, so
+    # everything is .get()-guarded.
     ds = (status.get("dishGetStatus") or {})
-    result["uptime_s"]    = ds.get("uptimeS")
-    dl = ds.get("downlinkThroughputBps", 0)
-    ul = ds.get("uplinkThroughputBps", 0)
-    if dl: result["downlink_mbps"] = round(dl / 1e6, 2)
-    if ul: result["uplink_mbps"]   = round(ul / 1e6, 2)
-    result["ping_drop_rate"] = ds.get("pingDropRate")
+
+    dev_state = ds.get("deviceState", {}) or {}
+    result["uptime_s"] = dev_state.get("uptimeS") or ds.get("uptimeS")
+
+    dl = ds.get("downlinkThroughputBps", 0) or 0
+    ul = ds.get("uplinkThroughputBps", 0) or 0
+    result["downlink_mbps"] = round(dl / 1e6, 3)
+    result["uplink_mbps"]   = round(ul / 1e6, 3)
+    result["ping_drop_rate"]  = ds.get("popPingDropRate")
     result["ping_latency_ms"] = ds.get("popPingLatencyMs")
-    result["state"] = ds.get("state", "")
+
     info = ds.get("deviceInfo", {}) or {}
     result["device_id"]    = info.get("id", "")
     result["hardware"]     = info.get("hardwareVersion", "")
     result["software"]     = info.get("softwareVersion", "")
     result["country_code"] = info.get("countryCode", "")
+
+    # Dish aim — gold for install positioning.
+    result["boresight_azimuth_deg"]   = ds.get("boresightAzimuthDeg")
+    result["boresight_elevation_deg"] = ds.get("boresightElevationDeg")
+
+    # Signal quality.
+    result["snr_above_noise_floor"] = ds.get("isSnrAboveNoiseFloor")
+    result["eth_speed_mbps"]        = ds.get("ethSpeedMbps")
+
+    # GPS.
+    gps = ds.get("gpsStats", {}) or {}
+    result["gps_valid"] = gps.get("gpsValid")
+    result["gps_sats"]  = gps.get("gpsSats")
+
+    # Obstruction. New firmware reports validS / patchesValid /
+    # avgProlongedObstructionIntervalS instead of a single fraction.
     obs = ds.get("obstructionStats", {}) or {}
-    result["obstruction_fraction"]            = obs.get("fractionObstructed")
-    result["obstruction_avg_prolonged_s"]     = obs.get("avgProlongedObstructionDurationS")
+    result["obstruction"] = {
+        "currently_obstructed":   obs.get("currentlyObstructed"),
+        "fraction_obstructed":    obs.get("fractionObstructed"),
+        "valid_s":                obs.get("validS"),
+        "patches_valid":          obs.get("patchesValid"),
+        "avg_prolonged_interval_s": obs.get("avgProlongedObstructionIntervalS"),
+        "time_obstructed":        obs.get("timeObstructed"),
+    }
+
+    # Bandwidth restriction reasons (if Starlink is throttling).
+    result["dl_restricted_reason"] = ds.get("dlBandwidthRestrictedReason")
+    result["ul_restricted_reason"] = ds.get("ulBandwidthRestrictedReason")
+
+    # Software update state.
+    result["software_update_state"] = ds.get("softwareUpdateState")
+
     # alerts is a dict of {name: bool}; collect the True ones.
     al = ds.get("alerts", {}) or {}
     result["alerts"] = [k for k, v in al.items() if v]
+
+def _uptime_human(s):
+    try:
+        s = int(s)
+    except (TypeError, ValueError):
+        return str(s)
+    d, rem = divmod(s, 86400)
+    h, rem = divmod(rem, 3600)
+    m, _ = divmod(rem, 60)
+    return f"{d}d {h}h {m}m"
+
+obs = result.get("obstruction", {}) or {}
 
 if fmt == "json":
     print(json.dumps(result, indent=2, default=str))
 elif fmt == "md":
     r = result
     print(f"# Starlink dish — {r['host']}\n")
-    print(f"- **State:** {r.get('state','?')}")
-    print(f"- **Uptime:** {r.get('uptime_s','?')} s")
-    print(f"- **Down / Up:** {r.get('downlink_mbps','?')} / {r.get('uplink_mbps','?')} Mbps")
-    print(f"- **Pop ping:** {r.get('ping_latency_ms','?')} ms")
-    print(f"- **Ping drop:** {r.get('ping_drop_rate','?')}")
-    if r.get("obstruction_fraction") is not None:
-        pct = r["obstruction_fraction"] * 100 if r["obstruction_fraction"] else 0
-        print(f"- **Obstruction:** {pct:.3f}% of view; avg prolonged {r.get('obstruction_avg_prolonged_s','?')} s")
-    print(f"- **Hardware:** {r.get('hardware','?')}")
-    print(f"- **Software:** {r.get('software','?')}")
-    print(f"- **Country:** {r.get('country_code','?')}")
-    if r["alerts"]:
-        print(f"- **Active alerts:** {', '.join(r['alerts'])}")
+    print(f"- **Device ID:** `{r.get('device_id','?')}`")
+    print(f"- **Hardware / Software:** {r.get('hardware','?')} / {r.get('software','?')}")
+    print(f"- **Uptime:** {_uptime_human(r.get('uptime_s'))}")
+    print(f"- **Throughput (instant):** ↓ {r.get('downlink_mbps','?')} / ↑ {r.get('uplink_mbps','?')} Mbps")
+    print(f"- **Pop ping:** {r.get('ping_latency_ms','?')} ms · drop {r.get('ping_drop_rate','?')}")
+    print(f"- **SNR above noise floor:** {r.get('snr_above_noise_floor','?')}")
+    print(f"- **Dish aim:** azimuth {r.get('boresight_azimuth_deg','?')}° · elevation {r.get('boresight_elevation_deg','?')}°")
+    print(f"- **GPS:** valid={r.get('gps_valid','?')} · sats={r.get('gps_sats','?')}")
+    print(f"- **Ethernet:** {r.get('eth_speed_mbps','?')} Mbps")
+    print(f"- **Obstruction:** currently={obs.get('currently_obstructed','?')} · "
+          f"patches_valid={obs.get('patches_valid','?')} · valid_s={obs.get('valid_s','?')} · "
+          f"avg_prolonged_interval_s={obs.get('avg_prolonged_interval_s','?')}")
+    if r.get("dl_restricted_reason") or r.get("ul_restricted_reason"):
+        print(f"- **Bandwidth restricted:** dl={r.get('dl_restricted_reason')} ul={r.get('ul_restricted_reason')}")
+    print(f"- **Active alerts:** {', '.join(r['alerts']) if r['alerts'] else 'none'}")
 else:
     r = result
     print(f"Starlink dish @ {r['host']}:{r['port']}")
-    print(f"  state         : {r.get('state','?')}")
-    print(f"  uptime        : {r.get('uptime_s','?')} s")
-    print(f"  download      : {r.get('downlink_mbps','?')} Mbps")
-    print(f"  upload        : {r.get('uplink_mbps','?')} Mbps")
-    print(f"  pop ping      : {r.get('ping_latency_ms','?')} ms")
-    print(f"  ping drop     : {r.get('ping_drop_rate','?')}")
-    if r.get('obstruction_fraction') is not None:
-        pct = r["obstruction_fraction"] * 100 if r["obstruction_fraction"] else 0
-        print(f"  obstruction   : {pct:.3f}%")
+    print(f"  device id     : {r.get('device_id','?')}")
     print(f"  hardware      : {r.get('hardware','?')}")
     print(f"  software      : {r.get('software','?')}")
-    if r["alerts"]:
-        print(f"  alerts        : {', '.join(r['alerts'])}")
+    print(f"  uptime        : {_uptime_human(r.get('uptime_s'))}")
+    print(f"  throughput    : ↓ {r.get('downlink_mbps','?')} / ↑ {r.get('uplink_mbps','?')} Mbps (instant)")
+    print(f"  pop ping      : {r.get('ping_latency_ms','?')} ms  (drop {r.get('ping_drop_rate','?')})")
+    print(f"  SNR ok        : {r.get('snr_above_noise_floor','?')}")
+    print(f"  dish aim      : az {r.get('boresight_azimuth_deg','?')}°  el {r.get('boresight_elevation_deg','?')}°")
+    print(f"  GPS           : valid={r.get('gps_valid','?')} sats={r.get('gps_sats','?')}")
+    print(f"  eth speed     : {r.get('eth_speed_mbps','?')} Mbps")
+    print(f"  obstruction   : currently={obs.get('currently_obstructed','?')} "
+          f"patches_valid={obs.get('patches_valid','?')} valid_s={obs.get('valid_s','?')}")
+    if r.get("dl_restricted_reason") or r.get("ul_restricted_reason"):
+        print(f"  bw restricted : dl={r.get('dl_restricted_reason')} ul={r.get('ul_restricted_reason')}")
+    print(f"  alerts        : {', '.join(r['alerts']) if r['alerts'] else 'none'}")
 PY
