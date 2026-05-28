@@ -73,10 +73,16 @@ fi
 guard_no_sudo
 
 # Default host list: the ARP cache (only IPs we already know — no subnet sweep).
+# Drop multicast (224-239.x), the all-ones broadcast and our own interface IPs
+# so we fingerprint real LAN peers only (matches discover's host filter).
 if [[ -z "$HOSTS_CSV" ]]; then
+  _self_ips="$(all_local_ipv4 2>/dev/null | paste -sd'|' -)"
   HOSTS_CSV="$(arp -an 2>/dev/null \
     | awk '/\(/ {gsub(/[()]/, "", $2); print $2}' \
     | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$' \
+    | grep -vE '^(22[4-9]|23[0-9])\.' \
+    | grep -vE '^255\.255\.255\.255$' \
+    | { if [[ -n "$_self_ips" ]]; then grep -vE "^(${_self_ips})$"; else cat; fi; } \
     | sort -u | paste -sd, -)"
 fi
 [[ -z "$HOSTS_CSV" ]] && die "No hosts to fingerprint. Run 'netkit discover --active' first or pass --hosts."
