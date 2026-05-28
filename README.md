@@ -151,7 +151,6 @@ Key environment variables:
 - [`docs/mcp-and-claude-code.md`](docs/mcp-and-claude-code.md) — using the toolkit with Claude Code / MCP servers
 - [`docs/workflows.md`](docs/workflows.md) — recommended LLM workflows
 - [`docs/command-safety.md`](docs/command-safety.md) — allowlist / denylist of commands
-- [`docs/business/`](docs/business/) — pricing, scope-of-work, authorization templates for commercial use
 
 ## Known hosts (friendly names)
 
