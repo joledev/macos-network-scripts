@@ -353,6 +353,8 @@ for n in ndp_mod.get("neighbors", []):
 def reclassify(rec):
     """Sharpen the role using SSDP/mDNS/NetBIOS/WSD/UBNT signals on top of
     fingerprint's guess."""
+    if rec.get("known_role"):
+        return rec["known_role"]          # explicit known-hosts label wins
     role = rec.get("role", "host")
     sd = rec.get("ssdp") or {}
     md = rec.get("mdns") or {}
