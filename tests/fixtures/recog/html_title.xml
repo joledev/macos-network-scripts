@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Trimmed Recog-format fixture for tests. -->
+<fingerprints matches="http_title.http_title">
+  <fingerprint pattern="^TP-LINK Wireless (?:N )?Router" flags="REG_ICASE">
+    <description>TP-Link router admin page</description>
+    <param pos="0" name="hw.vendor" value="TP-Link"/>
+    <param pos="0" name="hw.device" value="Router"/>
+  </fingerprint>
+</fingerprints>

@@ -30,8 +30,11 @@
 #   cert-check            TLS audit for arbitrary host:port (chain, versions, HSTS)
 #   snmp                  Read-only SNMP audit (system, interfaces, ARP, bridge FDB)
 #   unifi                 UniFi Controller inventory (devices, clients, WLANs)
+#   napalm                Multi-vendor fleet inventory (optional NAPALM dep)
 #   inventory             OS, hardware and installed tools
 #   oui fetch [--force]   Refresh IEEE OUI cache (~/.cache/netkit/oui.txt)
+#   recog fetch [--force] Fetch Rapid7 Recog DB (banner → vendor/product/device)
+#   fleet <action>        Run a per-host audit across many nodes in parallel
 #   recon [--active]      One-pass discovery + interactive HTML map + mermaid
 #   netbox-export         Export recon inventory to NetBox (CSV, or --push via API)
 #   report [--active]     Generate combined md/json/mermaid report under output/
@@ -67,7 +70,7 @@ export NETKIT_ROOT
 source "${NETKIT_ROOT}/scripts/utils/common.sh"
 
 usage() {
-  sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # Pre-parse global flags that may appear BEFORE the subcommand. Stop at
@@ -146,6 +149,8 @@ case "$CMD" in
     "${NETKIT_ROOT}/scripts/diagnostics/snmp.sh" "$@" ;;
   unifi|ubnt)
     "${NETKIT_ROOT}/scripts/diagnostics/unifi.sh" "$@" ;;
+  napalm|fleet-vendor)
+    "${NETKIT_ROOT}/scripts/diagnostics/napalm.sh" "$@" ;;
   cameras|onvif)
     "${NETKIT_ROOT}/scripts/discovery/cameras.sh" "$@" ;;
   inventory|inv)
@@ -157,6 +162,15 @@ case "$CMD" in
       *) log_err "Usage: netkit oui fetch [--force]"; exit 2 ;;
     esac
     ;;
+  recog)
+    sub="${1:-}"; shift || true
+    case "$sub" in
+      fetch) "${NETKIT_ROOT}/scripts/utils/recog_fetch.sh" "$@" ;;
+      *) log_err "Usage: netkit recog fetch [--force]"; exit 2 ;;
+    esac
+    ;;
+  fleet)
+    "${NETKIT_ROOT}/scripts/discovery/fleet.sh" "$@" ;;
   history)
     "${NETKIT_ROOT}/scripts/reports/history.sh" "$@" ;;
   diff)

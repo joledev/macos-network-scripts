@@ -135,12 +135,19 @@ import concurrent.futures, json, os, re, socket, ssl, subprocess, sys
 sys.path.insert(0, os.path.join(os.environ["NETKIT_ROOT"], "scripts/utils"))
 import oui            # noqa: E402
 import known_hosts    # noqa: E402
+import recog          # noqa: E402
 
 fmt   = os.environ["NETKIT_FMT"]
 hosts = [h.strip() for h in os.environ["NETKIT_HOSTS_CSV"].split(",") if h.strip()]
 gw    = os.environ.get("NETKIT_GW", "")
 use_nmap  = os.environ.get("NETKIT_USE_NMAP") == "1"
 os_detect = os.environ.get("NETKIT_OS_DETECT") == "1"
+
+# Prime the Recog DB single-threaded so the worker pool only reads it.
+RECOG_ON = recog.available()
+if RECOG_ON:
+    for _k in recog.KIND_FILES:
+        recog._load(_k)
 
 # Curated service ports: routers/APs, web admin, file shares, printers,
 # cameras, IoT, databases, remote desktop, media servers.
@@ -363,6 +370,13 @@ def fingerprint(ip):
             rec["nmap_services"] = {str(k): v for k, v in svc.items()}
         if osm:
             rec["os_guess"] = osm
+    # Recog enrichment: map each HTTP banner to vendor/product/device-type.
+    if RECOG_ON:
+        for h in rec["http"]:
+            hit = recog.identify_http(h)
+            if hit:
+                h["recog"] = hit
+                rec.setdefault("recog", hit)
     return rec
 
 
@@ -381,6 +395,10 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, max(1, len(hosts)
         mac = mac_by_ip.get(ip, "")
         rec["mac"] = mac
         rec["vendor"] = oui.lookup(mac) if mac else ""
+        if mac and oui.mac_kind(mac) == "random/local":
+            rec["mac_kind"] = "random/local"
+            if not rec["vendor"] or rec["vendor"] == "Unknown":
+                rec["vendor"] = "(randomized MAC)"
         hit = known_hosts.lookup(ip=ip, mac=mac)
         if hit:
             if hit.get("name"): rec["known_name"] = hit["name"]
@@ -406,6 +424,7 @@ def fmt_ident(rec):
         elif h.get("title"): bits.append(f"{h['scheme']}:{h['port']} \"{h['title']}\"")
     for t in rec.get("tls", []):
         if t.get("subject"): bits.append(f"tls:{t['port']} {t['subject']}")
+    if rec.get("recog"): bits.append(f"recog:{recog.label(rec['recog'])}")
     if rec.get("os_guess"): bits.append(f"os:{rec['os_guess']}")
     return " | ".join(bits)
 
@@ -439,6 +458,8 @@ for r in results:
         print(line)
     for t in r.get("tls", []):
         print(f"    tls:{t['port']:<5}: subject={t.get('subject','')}  issuer={t.get('issuer','')}")
+    if r.get("recog"):
+        print(f"    recog    : {recog.label(r['recog'])}")
     if r.get("nmap_services"):
         for p, s in sorted(r["nmap_services"].items(), key=lambda kv: int(kv[0])):
             print(f"    nmap {p:<5}: {s}")

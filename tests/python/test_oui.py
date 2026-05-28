@@ -41,6 +41,32 @@ def test_normalize_pads_and_uppercases():
     assert oui._normalize("F0:db:f8:11:22:33") == "F0DBF8"
 
 
+def test_mac_kind_universal():
+    # 0x00 first octet — U/L and I/G bits clear → a real OUI-assigned MAC.
+    assert oui.mac_kind("00:11:24:aa:bb:cc") == "universal"
+
+
+def test_mac_kind_random_local():
+    # 0x02 bit set in the first octet → locally administered (private/random).
+    assert oui.mac_kind("02:11:24:aa:bb:cc") == "random/local"
+    assert oui.mac_kind("d6:ad:be:ef:00:00") == "random/local"
+    # The virtual/local BSSID a mesh app reported as the "gateway" MAC.
+    assert oui.is_locally_administered("06:71:aa:bb:cc:dd")
+
+
+def test_mac_kind_multicast():
+    assert oui.mac_kind("01:00:5e:00:00:01") == "multicast"
+
+
+def test_mac_kind_unknown_when_too_short():
+    assert oui.mac_kind("0") == "unknown"
+    assert oui.is_locally_administered("") is False
+
+
+def test_universal_mac_is_not_locally_administered():
+    assert oui.is_locally_administered("00:11:24:aa:bb:cc") is False
+
+
 def test_cache_lookup_used_when_present(tmp_path, monkeypatch):
     """If ~/.cache/netkit/oui.txt exists, it overrides the builtin table for
     prefixes the builtin doesn't know."""

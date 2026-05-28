@@ -281,6 +281,16 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=32) as ex:
         if name:
             hosts[ip]["name"] = name
 
+# Flag randomized / locally-administered MACs (phones using private Wi-Fi
+# MACs). Their OUI is meaningless, so make "(randomized MAC)" the vendor when
+# nothing else resolved — explains the otherwise-blank vendor column.
+for rec in hosts.values():
+    mac = rec.get("mac", "")
+    if mac and oui.mac_kind(mac) == "random/local":
+        rec["mac_kind"] = "random/local"
+        if not rec.get("vendor") or rec["vendor"] == "Unknown":
+            rec["vendor"] = "(randomized MAC)"
+
 # Known-hosts enrichment — overlay friendly names + roles from local config.
 for rec in hosts.values():
     hit = known_hosts.lookup(ip=rec.get("ip", ""), mac=rec.get("mac", ""))

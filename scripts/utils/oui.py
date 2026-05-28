@@ -47,6 +47,33 @@ def _normalize_full(mac: str) -> str:
     return "".join(c for c in mac.upper() if c in "0123456789ABCDEF")[:12]
 
 
+def mac_kind(mac: str) -> str:
+    """Classify a MAC by its first-octet bits (IEEE 802 U/L and I/G bits).
+
+    Returns one of: "universal" (real OUI-assigned), "random/local" (the
+    locally-administered bit is set — phones using private/randomized Wi-Fi
+    MACs land here, which is WHY their OUI never resolves to a vendor),
+    "multicast", or "unknown" (too short / non-hex).
+    """
+    full = _normalize_full(mac)
+    if len(full) < 2:
+        return "unknown"
+    try:
+        first = int(full[:2], 16)
+    except ValueError:
+        return "unknown"
+    if first & 0x01:           # I/G bit — group address
+        return "multicast"
+    if first & 0x02:           # U/L bit — locally administered
+        return "random/local"
+    return "universal"
+
+
+def is_locally_administered(mac: str) -> bool:
+    """True when the MAC's locally-administered bit is set (random/private MAC)."""
+    return mac_kind(mac) == "random/local"
+
+
 def lookup(mac: str) -> str:
     full = _normalize_full(mac)
     if len(full) < 6:

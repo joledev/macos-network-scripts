@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Trimmed Recog-format fixture for tests. Real DB: `netkit recog fetch`. -->
+<fingerprints matches="http_server_header.http_server">
+  <fingerprint pattern="^Apache(?:/([\d.]+))?(?: \(([^)]+)\))?$">
+    <description>Apache</description>
+    <example service.version="2.4.7">Apache/2.4.7 (Ubuntu)</example>
+    <param pos="0" name="service.vendor" value="Apache"/>
+    <param pos="0" name="service.product" value="HTTPD"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:apache:http_server:{service.version}"/>
+  </fingerprint>
+  <fingerprint pattern="^lighttpd/([\d.]+)$">
+    <description>lighttpd</description>
+    <param pos="0" name="service.vendor" value="lighttpd"/>
+    <param pos="0" name="service.product" value="lighttpd"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+  <fingerprint pattern="^Hipcam RealServer/V1\.0$">
+    <description>Hipcam IP camera</description>
+    <param pos="0" name="hw.vendor" value="Hipcam"/>
+    <param pos="0" name="hw.device" value="Webcam"/>
+  </fingerprint>
+  <!-- Ruby-only named group: Python's re cannot compile this. The loader must
+       skip just this fingerprint and keep the rest usable. -->
+  <fingerprint pattern="(?&lt;ver&gt;[\d.]+) BadEngine">
+    <description>uncompilable-on-python</description>
+    <param pos="0" name="service.product" value="ShouldNeverMatch"/>
+  </fingerprint>
+</fingerprints>

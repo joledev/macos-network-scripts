@@ -167,6 +167,18 @@ SYS_OIDS = {
 for name, oid in SYS_OIDS.items():
     system[name] = get_single(oid)
 
+# Recog enrichment: turn the free-text sysDescr into vendor/product/OS.
+if system.get("sysDescr"):
+    try:
+        sys.path.insert(0, os.path.join(os.environ.get("NETKIT_ROOT", "."), "scripts/utils"))
+        import recog
+        if recog.available():
+            _hit = recog.identify("snmp_sysdescr", system["sysDescr"])
+            if _hit:
+                system["identified_as"] = recog.label(_hit)
+    except Exception:  # noqa: BLE001 — enrichment is best-effort
+        pass
+
 reachable = bool(system.get("sysDescr"))
 
 # Bail early if the device didn't respond at all.
