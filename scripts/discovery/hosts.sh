@@ -289,6 +289,8 @@ for rec in hosts.values():
             rec["known_name"] = hit["name"]
         if hit.get("role"):
             rec["role"] = hit["role"]
+        if hit.get("uplink"):           # declared parent: another host IP / infra id
+            rec["known_uplink"] = str(hit["uplink"])
 
 rows = sorted(hosts.values(),
               key=lambda r: tuple(int(x) for x in r["ip"].split(".")))

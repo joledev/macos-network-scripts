@@ -140,7 +140,9 @@ def render(report: dict, *, brand: str = "Network map") -> str:
             edges.append({"a": resolve(n.get("parent")), "b": inode, "label": "", "cls": "link"})
         y += ((len(infra) + per_row - 1) // per_row) * (box_h + gap_y)
 
-    # device tier — each host attaches to its parent (switch or gateway)
+    # device tier — pass 1: create every host node (so host→host parents like a
+    # mesh backhaul resolve regardless of ordering), pass 2: wire edges to parent.
+    dev = []
     for idx, rec in enumerate(others):
         row, col = divmod(idx, per_row)
         row_count = min(per_row, len(others) - row * per_row)
@@ -153,6 +155,8 @@ def render(report: dict, *, brand: str = "Network map") -> str:
                 "title": rec["ip"], "sub": _esc(_node_name(rec))[:26], "rec": rec}
         nodes.append(node)
         node_by_ent[rec["ip"]] = node
+        dev.append((rec, node))
+    for rec, node in dev:
         edges.append({"a": resolve(rec.get("parent")), "b": node, "label": "", "cls": "link"})
 
     rows_used = (len(others) + per_row - 1) // per_row if others else 0

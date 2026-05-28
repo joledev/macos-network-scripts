@@ -396,6 +396,7 @@ for h in hosts_mod.get("hosts", []):
     }
     if h.get("known_name"): rec["known_name"] = h["known_name"]
     if h.get("role"): rec["known_role"] = h["role"]
+    if h.get("known_uplink"): rec["known_uplink"] = h["known_uplink"]
     merged[ip] = rec
 
 # Overlay fingerprint
@@ -514,7 +515,9 @@ import infrastructure
 infra_nodes = infrastructure.load()
 _parent_of = infrastructure.host_parent_map(infra_nodes)
 for h in hosts:
-    h["parent"] = _parent_of.get(h.get("ip", ""), gw)
+    # Parent precedence: an explicit known-hosts `uplink` (e.g. mesh node → node)
+    # > an infra node whose `ports` lists this IP > the gateway.
+    h["parent"] = h.get("known_uplink") or _parent_of.get(h.get("ip", ""), gw)
 for n in infra_nodes:
     n["parent"] = n.get("uplink") or gw   # uplink: a host/gateway IP or another node id
 

@@ -4,6 +4,16 @@
 #
 # Lookups try IP first, then MAC. Both keys are normalized (lowercase MAC,
 # padded octets). Anything you don't list shows up with its raw vendor name.
+#
+# Optional fields per entry:
+#   name    friendly label
+#   role    overrides auto-classification (router/gateway, ap/switch/router,
+#           camera, printer, nas/file-server, tv/media, iot/mqtt, computer, ...)
+#   uplink  what this host hangs off on the map: another host IP or an
+#           infrastructure node id. Lets you draw real links scans can't see —
+#           e.g. a Wi-Fi client under its AP, or a mesh node under the main node:
+#             "192.168.1.119" = { name = "Phone", uplink = "192.168.1.69" }   # under the Halo AP
+#             "192.168.1.70"  = { name = "Halo (Living Room)", role = "ap/switch/router", uplink = "192.168.1.69" }  # mesh backhaul
 
 [hosts]
 # IP-based entries — useful when devices have a static/DHCP-reserved IP.
